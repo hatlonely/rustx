@@ -1,0 +1,20 @@
+[workspace]
+members = [
+    "cfg"
+]
+resolver = "2"
+
+[workspace.dependencies]
+# 共享依赖版本
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+anyhow = "1.0"
+thiserror = "1.0"
+
+[workspace.package]
+# 共享包信息
+version = "0.1.0"
+authors = ["hatlonely <hatlonely@foxmail.com>"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hatlonely/rustx"
