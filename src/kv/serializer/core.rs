@@ -21,4 +21,3 @@ pub trait Serializer<F, T>: Send + Sync {
     /// 反序列化：将 T 类型转换为 F 类型  
     fn deserialize(&self, to: T) -> impl Future<Output = Result<F, SerializerError>> + Send;
 }
-

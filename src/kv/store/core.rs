@@ -67,4 +67,3 @@ where
     /// 关闭存储
     fn close(&self) -> impl Future<Output = Result<(), KvError>> + Send;
 }
-

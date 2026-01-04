@@ -2,7 +2,6 @@ use anyhow::Result;
 use rustx::cfg::duration::{serde_as, HumanDur};
 use rustx::cfg::*;
 use serde::{Deserialize, Serialize};
-use std::any::Any;
 use std::time::Duration;
 
 #[serde_as]
@@ -32,20 +31,14 @@ impl Service {
     }
 }
 
-impl Configurable for Service {
-    type Config = ServiceConfig;
-
-    fn from_config(config: Self::Config) -> Result<Box<dyn Any + Send + Sync>> {
-        Ok(Box::new(Service::new(config)))
-    }
-
-    fn type_name() -> &'static str {
-        "service"
+impl WithConfig<ServiceConfig> for Service {
+    fn with_config(config: ServiceConfig) -> Self {
+        Service::new(config)
     }
 }
 
 fn main() -> Result<()> {
-    register::<Service>()?;
+    register_auto::<Service, ServiceConfig>("service")?;
 
     // JSON 配置示例
     let json_config = r#"

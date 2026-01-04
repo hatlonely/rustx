@@ -38,4 +38,3 @@ pub trait Parser<K, V>: Send + Sync {
     /// - Err(ParserError): 解析失败
     fn parse(&self, buf: &[u8]) -> impl Future<Output = Result<(ChangeType, K, V), ParserError>> + Send;
 }
-

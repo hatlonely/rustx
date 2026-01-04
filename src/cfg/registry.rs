@@ -8,7 +8,7 @@ use once_cell::sync::Lazy;
 use std::sync::RwLock;
 use anyhow::{Result, anyhow};
 
-use super::config::{Configurable, TypeOptions};
+use super::config::{TypeOptions, WithConfig};
 
 // 构造函数类型
 type Constructor = Box<dyn Fn(JsonValue) -> Result<Box<dyn Any + Send + Sync>> + Send + Sync>;
@@ -18,12 +18,24 @@ static REGISTRY: Lazy<RwLock<HashMap<String, Constructor>>> = Lazy::new(|| {
     RwLock::new(HashMap::new())
 });
 
-/// 注册实现了 Configurable trait 的类型
-pub fn register<T: Configurable>() -> Result<()> {
-    let type_name = T::type_name().to_string();
+/// 智能注册方法 - 自动为任何有 with_config 的类型创建适配器
+/// 
+/// 这个方法会：
+/// 1. 自动检测类型的 with_config 方法
+/// 2. 生成合适的类型名称
+/// 3. 创建透明的配置适配器
+/// 4. 完全无需类型实现任何 trait
+pub fn register_auto<T, Config>(type_name: &str) -> Result<()>
+where
+    T: Send + Sync + 'static,
+    Config: DeserializeOwned + Clone + Send + Sync + 'static,
+    T: WithConfig<Config>,
+{
+    let type_name = type_name.to_string();
     let constructor: Constructor = Box::new(|value| {
-        let config: T::Config = serde_json::from_value(value)?;
-        T::from_config(config)
+        let config: Config = serde_json::from_value(value)?;
+        let instance = T::with_config(config);
+        Ok(Box::new(instance))
     });
     
     let mut registry = REGISTRY.write().map_err(|_| anyhow!("Failed to acquire write lock"))?;
@@ -31,24 +43,24 @@ pub fn register<T: Configurable>() -> Result<()> {
     Ok(())
 }
 
-/// 手动注册函数（当无法使用泛型时）
-pub fn register_type<C>(
-    type_name: &str,
-    constructor: impl Fn(C) -> Result<Box<dyn Any + Send + Sync>> + Send + Sync + 'static,
-) -> Result<()>
+/// 带自动类型名称生成的智能注册
+pub fn register_auto_with_type<T, Config>() -> Result<()>
 where
-    C: DeserializeOwned + 'static,
+    T: Send + Sync + 'static,
+    Config: DeserializeOwned + Clone + Send + Sync + 'static,
+    T: WithConfig<Config>,
 {
-    let type_name = type_name.to_string();
-    let wrapped_constructor: Constructor = Box::new(move |value| {
-        let config: C = serde_json::from_value(value)?;
-        constructor(config)
-    });
-    
-    let mut registry = REGISTRY.write().map_err(|_| anyhow!("Failed to acquire write lock"))?;
-    registry.insert(type_name, wrapped_constructor);
-    Ok(())
+    let type_name = generate_auto_type_name::<T>();
+    register_auto::<T, Config>(&type_name)
 }
+
+
+/// 自动生成类型名称 - 直接使用 type_name 作为 key
+pub fn generate_auto_type_name<T: 'static>() -> String {
+    use std::any::type_name;
+    type_name::<T>().to_string()
+}
+
 
 /// 根据 TypeOptions 创建对象实例
 pub fn create_from_type_options(type_options: &TypeOptions) -> Result<Box<dyn Any + Send + Sync>> {
@@ -64,7 +76,7 @@ pub fn create_from_type_options(type_options: &TypeOptions) -> Result<Box<dyn An
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cfg::config::{Configurable, TypeOptions};
+    use crate::cfg::config::TypeOptions;
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -78,29 +90,24 @@ mod tests {
         config: TestConfig,
     }
 
-    impl Configurable for TestService {
-        type Config = TestConfig;
-        
-        fn from_config(config: Self::Config) -> Result<Box<dyn Any + Send + Sync>> {
-            Ok(Box::new(TestService { config }))
-        }
-        
-        fn type_name() -> &'static str {
-            "test_service"
+    impl WithConfig<TestConfig> for TestService {
+        fn with_config(config: TestConfig) -> Self {
+            Self { config }
         }
     }
 
     #[test]
-    fn test_register_and_create() -> Result<()> {
-        register::<TestService>()?;
+    fn test_register_auto_with_type() -> Result<()> {
+        register_auto_with_type::<TestService, TestConfig>()?;
         
         let config = TestConfig {
             message: "test_message".to_string(),
             count: 10,
         };
         
+        let actual_type_name = generate_auto_type_name::<TestService>();
         let type_options = TypeOptions {
-            type_name: "test_service".to_string(),
+            type_name: actual_type_name,
             options: serde_json::to_value(config.clone())?,
         };
         
@@ -112,35 +119,48 @@ mod tests {
     }
 
     #[test]
-    fn test_register_type_manual() -> Result<()> {
-        #[derive(Deserialize)]
-        struct ManualConfig {
+    fn test_register_auto_manual_type_name() -> Result<()> {
+        #[derive(Debug, PartialEq, Clone, Deserialize)]
+        struct CustomConfig {
             value: String,
         }
 
         #[derive(Debug, PartialEq)]
-        struct ManualService {
+        struct CustomService {
             value: String,
         }
 
-        register_type("manual_service", |config: ManualConfig| -> Result<Box<dyn Any + Send + Sync>> {
-            Ok(Box::new(ManualService {
-                value: config.value,
-            }))
-        })?;
+        impl WithConfig<CustomConfig> for CustomService {
+            fn with_config(config: CustomConfig) -> Self {
+                Self { value: config.value }
+            }
+        }
+
+        register_auto::<CustomService, CustomConfig>("custom_service")?;
         
         let type_options = TypeOptions {
-            type_name: "manual_service".to_string(),
+            type_name: "custom_service".to_string(),
             options: serde_json::json!({
-                "value": "manual_test"
+                "value": "custom_test"
             }),
         };
         
         let obj = create_from_type_options(&type_options)?;
-        let service = obj.downcast_ref::<ManualService>().unwrap();
+        let service = obj.downcast_ref::<CustomService>().unwrap();
         
-        assert_eq!(service.value, "manual_test");
+        assert_eq!(service.value, "custom_test");
         Ok(())
+    }
+
+    #[test]
+    fn test_generate_auto_type_name() {
+        // 测试类型名生成
+        let generated_type_name = generate_auto_type_name::<TestService>();
+        assert!(generated_type_name.contains("TestService"));
+        
+        // 验证是完整的类型名
+        let actual_type_name = std::any::type_name::<TestService>();
+        assert_eq!(generated_type_name, actual_type_name);
     }
 
     #[test]
@@ -160,11 +180,12 @@ mod tests {
 
     #[test]
     fn test_invalid_config_error() -> Result<()> {
-        register::<TestService>()?;
+        register_auto_with_type::<TestService, TestConfig>()?;
         
         // 提供错误的配置格式
+        let actual_type_name = generate_auto_type_name::<TestService>();
         let type_options = TypeOptions {
-            type_name: "test_service".to_string(),
+            type_name: actual_type_name,
             options: serde_json::json!({
                 "wrong_field": "invalid"
             }),

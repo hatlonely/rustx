@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use thiserror::Error;
 
-use super::parser::ChangeType;
+use super::super::parser::ChangeType;
 
 /// 加载策略（对应 Golang 常量）
 pub const LOAD_STRATEGY_REPLACE: &str = "replace";
@@ -33,5 +33,3 @@ pub trait Loader<K, V>: Send + Sync {
     /// 关闭加载器（对应 Golang Close）
     fn close(&mut self) -> Pin<Box<dyn Future<Output = Result<(), LoaderError>> + Send + '_>>;
 }
-
-
