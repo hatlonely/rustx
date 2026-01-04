@@ -1,6 +1,6 @@
 use anyhow::Result;
-use cfg::duration::{serde_as, HumanDur};
-use cfg::*;
+use rustx::cfg::duration::{serde_as, HumanDur};
+use rustx::cfg::*;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::time::Duration;
