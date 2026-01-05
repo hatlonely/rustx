@@ -31,9 +31,5 @@ name = "cfg_serialization"
 path = "examples/cfg/cfg_serialization.rs"
 
 [[example]]
-name = "map_store_example"
-path = "examples/kv/map_store_example.rs"
-
-[[example]]
-name = "map_store_config_example"
-path = "examples/kv/map_store_config_example.rs"
+name = "map_store"
+path = "examples/kv/store/map_store.rs"
