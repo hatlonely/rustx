@@ -317,4 +317,107 @@ mod tests {
         // 这里我们不直接测试 async 方法，只验证创建成功
         let _store_ref = &store;
     }
+
+    #[tokio::test]
+    async fn test_concurrent_read_write() {
+        use std::sync::Arc;
+        use std::time::Duration;
+        use tokio::time::sleep;
+
+        let store = Arc::new(SafeHashMapStore::<String, i32>::new());
+        let num_readers = 5;
+        let num_writers = 3;
+        let num_operations = 100;
+
+        // 预先插入一些数据
+        for i in 0..10 {
+            store
+                .set(format!("key_{}", i), i, SetOptions::new())
+                .await
+                .unwrap();
+        }
+
+        let mut handles = Vec::new();
+
+        // 启动多个读线程
+        for reader_id in 0..num_readers {
+            let store_clone = Arc::clone(&store);
+            let handle = tokio::spawn(async move {
+                let mut read_count = 0;
+                for i in 0..num_operations {
+                    let key = format!("key_{}", i % 10);
+                    match store_clone.get(key).await {
+                        Ok(_) => read_count += 1,
+                        Err(KvError::KeyNotFound) => {} // 正常情况，key可能被删除
+                        Err(e) => panic!("Reader {} failed with error: {:?}", reader_id, e),
+                    }
+                    // 添加小延迟增加并发度
+                    if i % 10 == 0 {
+                        sleep(Duration::from_millis(1)).await;
+                    }
+                }
+                println!("Reader {} completed {} reads", reader_id, read_count);
+                read_count
+            });
+            handles.push(handle);
+        }
+
+        // 启动多个写线程
+        for writer_id in 0..num_writers {
+            let store_clone = Arc::clone(&store);
+            let handle = tokio::spawn(async move {
+                let mut write_count = 0;
+                for i in 0..num_operations {
+                    let key = format!("key_{}", i % 10);
+                    let value = writer_id * 1000 + i;
+
+                    // 交替进行设置和删除操作
+                    if i % 2 == 0 {
+                        store_clone
+                            .set(key, value, SetOptions::new())
+                            .await
+                            .unwrap();
+                        write_count += 1;
+                    } else {
+                        store_clone.del(key).await.unwrap();
+                        write_count += 1;
+                    }
+
+                    // 添加小延迟增加并发度
+                    if i % 10 == 0 {
+                        sleep(Duration::from_millis(1)).await;
+                    }
+                }
+                println!("Writer {} completed {} writes", writer_id, write_count);
+                write_count
+            });
+            handles.push(handle);
+        }
+
+        // 等待所有任务完成
+        let mut total_reads = 0;
+        let mut total_writes = 0;
+
+        for (i, handle) in handles.into_iter().enumerate() {
+            let count = handle.await.unwrap();
+            if i < num_readers {
+                total_reads += count;
+            } else {
+                total_writes += count;
+            }
+        }
+
+        println!(
+            "Total reads: {}, Total writes: {}",
+            total_reads, total_writes
+        );
+
+        // 验证store仍然可用
+        store
+            .set("final_test".to_string(), 999, SetOptions::new())
+            .await
+            .unwrap();
+        let final_value = store.get("final_test".to_string()).await.unwrap();
+        assert_eq!(final_value, 999);
+    }
 }

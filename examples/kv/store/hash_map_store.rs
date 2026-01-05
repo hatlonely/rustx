@@ -1,19 +1,19 @@
 use anyhow::Result;
 use rustx::cfg::*;
-use rustx::kv::store::{SafeHashMapStore, SafeHashMapStoreConfig, SetOptions, Store};
+use rustx::kv::store::{HashMapStore, HashMapStoreConfig, SetOptions, Store};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 零耦合自动注册！线程安全 SafeHashMapStore 完全不需要知道配置系统的存在
-    register::<SafeHashMapStore<String, String>, SafeHashMapStoreConfig>()?;
+    // 零耦合自动注册！无锁 HashMapStore 完全不需要知道配置系统的存在
+    register::<HashMapStore<String, String>, HashMapStoreConfig>()?;
 
-    println!("=== 线程安全 SafeHashMapStore JSON 配置示例 ===");
+    println!("=== 无锁 HashMapStore JSON 配置示例 ===");
 
     // JSON 配置示例 - 使用已知的类型名
     let json_config = r#"{
-        "type": "rustx::kv::store::safe_hash_map_store::SafeHashMapStore<alloc::string::String, alloc::string::String>",
+        "type": "rustx::kv::store::hash_map_store::HashMapStore<alloc::string::String, alloc::string::String>",
         "options": {
-            "initial_capacity": 10000
+            "initial_capacity": 1000
         }
     }"#;
 
@@ -21,8 +21,8 @@ async fn main() -> Result<()> {
     println!("🔍 使用的类型名: {}", type_options.type_name);
     let store_obj = create_from_type_options(&type_options)?;
 
-    if let Some(store) = store_obj.downcast_ref::<SafeHashMapStore<String, String>>() {
-        println!("✅ JSON配置创建线程安全SafeHashMapStore成功");
+    if let Some(store) = store_obj.downcast_ref::<HashMapStore<String, String>>() {
+        println!("✅ JSON配置创建无锁HashMapStore成功");
 
         // 测试基本操作
         store
@@ -46,7 +46,7 @@ async fn main() -> Result<()> {
                 SetOptions::new().with_if_not_exist(),
             )
             .await;
-
+        
         match result {
             Err(_) => println!("🚫 key1 已存在，条件设置失败（符合预期）"),
             Ok(_) => println!("⚠️  key1 不存在时才能设置，但设置成功了？"),
@@ -83,24 +83,16 @@ async fn main() -> Result<()> {
         println!("🔍 删除后获取值: {:?}", empty_values);
         println!("❌ 删除后获取错误: {:?}", not_found_errors);
 
-        // 注意：SafeHashMapStore 内部使用 RwLock 提供线程安全
-        println!("\n=== 测试线程安全特性 ===");
-        println!("💡 SafeHashMapStore 使用 RwLock<HashMap> 实现，天然支持多线程安全");
-
         // 测试性能对比示例
         println!("\n=== 性能测试示例 ===");
         let start = std::time::Instant::now();
-
+        
         for i in 0..10000 {
             store
-                .set(
-                    format!("perf_key_{}", i),
-                    format!("perf_value_{}", i),
-                    SetOptions::new(),
-                )
+                .set(format!("perf_key_{}", i), format!("perf_value_{}", i), SetOptions::new())
                 .await?;
         }
-
+        
         let set_duration = start.elapsed();
         println!("⚡ 设置 10000 个键值对耗时: {:?}", set_duration);
 
@@ -116,8 +108,8 @@ async fn main() -> Result<()> {
         println!("🧹 存储已关闭和清理");
     }
 
-    println!("\n🎉 线程安全 SafeHashMapStore JSON 配置示例完成!");
-    println!("💡 注意：SafeHashMapStore 内置线程安全保护，适合在多线程环境下使用，确保数据一致性");
+    println!("\n🎉 无锁 HashMapStore JSON 配置示例完成!");
+    println!("💡 注意：无锁版本适合在单线程或明确线程安全控制的场景下使用，可获得更高性能");
 
     Ok(())
 }
