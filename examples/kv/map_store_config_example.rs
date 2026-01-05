@@ -5,9 +5,9 @@ use rustx::cfg::*;
 #[tokio::main]
 async fn main() -> Result<()> {
     // 零耦合自动注册！MapStore 完全不需要知道配置系统的存在
-    register_auto_with_type::<MapStore<String, String>, MapStoreConfig>()?;
-    register_auto_with_type::<MapStore<String, i32>, MapStoreConfig>()?;
-    register_auto_with_type::<MapStore<String, i64>, MapStoreConfig>()?;
+    register::<MapStore<String, String>, MapStoreConfig>()?;
+    register::<MapStore<String, i32>, MapStoreConfig>()?;
+    register::<MapStore<String, i64>, MapStoreConfig>()?;
 
     println!("=== MapStore 配置示例 ===");
 
@@ -32,11 +32,11 @@ async fn main() -> Result<()> {
 
     if let Some(store) = store_obj.downcast_ref::<MapStore<String, String>>() {
         println!("✅ JSON配置创建MapStore成功");
-        
+
         // 测试基本操作
         store.set("name".to_string(), "rustx".to_string(), SetOptions::new()).await?;
         store.set("version".to_string(), "0.1.0".to_string(), SetOptions::new()).await?;
-        
+
         let name = store.get("name".to_string()).await?;
         let version = store.get("version".to_string()).await?;
         println!("📦 项目名称: {}", name);
@@ -45,10 +45,10 @@ async fn main() -> Result<()> {
         // 测试批量操作
         let keys = vec!["key1".to_string(), "key2".to_string(), "key3".to_string()];
         let values = vec!["value1".to_string(), "value2".to_string(), "value3".to_string()];
-        
+
         let batch_results = store.batch_set(keys.clone(), values, SetOptions::new()).await?;
         println!("📝 批量设置结果: {:?}", batch_results);
-        
+
         let (batch_values, batch_errors) = store.batch_get(keys).await?;
         println!("📖 批量获取值: {:?}", batch_values);
         println!("⚠️  批量获取错误: {:?}", batch_errors);
@@ -67,11 +67,11 @@ options:
 
     if let Some(yaml_store) = yaml_store_obj.downcast_ref::<MapStore<String, String>>() {
         println!("✅ YAML配置创建MapStore成功");
-        
+
         yaml_store.set("config_type".to_string(), "yaml".to_string(), SetOptions::new()).await?;
         let config_type = yaml_store.get("config_type".to_string()).await?;
         println!("⚙️  配置类型: {}", config_type);
-        
+
         // 测试条件设置
         let result = yaml_store.set("config_type".to_string(), "json".to_string(), SetOptions::new().with_if_not_exist()).await;
         match result {
@@ -96,16 +96,16 @@ options:
 
     if let Some(int_store) = int_store_obj.downcast_ref::<MapStore<String, i32>>() {
         println!("✅ 创建 MapStore<String, i32> 成功");
-        
+
         int_store.set("count".to_string(), 42, SetOptions::new()).await?;
         int_store.set("max_value".to_string(), 100, SetOptions::new()).await?;
-        
+
         let count = int_store.get("count".to_string()).await?;
         let max_value = int_store.get("max_value".to_string()).await?;
         println!("🔢 计数: {}, 最大值: {}", count, max_value);
     }
 
     println!("\n🎉 MapStore 配置示例完成!");
-    
+
     Ok(())
 }

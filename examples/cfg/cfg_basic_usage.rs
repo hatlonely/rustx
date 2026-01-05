@@ -38,7 +38,7 @@ impl WithConfig<ServiceConfig> for Service {
 }
 
 fn main() -> Result<()> {
-    register_auto::<Service, ServiceConfig>("service")?;
+    register_with_name::<Service, ServiceConfig>("service")?;
 
     // JSON 配置示例
     let json_config = r#"
@@ -46,7 +46,7 @@ fn main() -> Result<()> {
         "type": "service",
         "options": {
             "name": "web-api",
-            "host": "localhost", 
+            "host": "localhost",
             "port": 8080,
             "timeout": "30s",
             "max_connections": 100
