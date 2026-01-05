@@ -23,13 +23,9 @@ tokio = { version = "1.0", features = ["full"] }
 
 # Examples configuration
 [[example]]
-name = "cfg_basic_usage"
-path = "examples/cfg/cfg_basic_usage.rs"
+name = "cfg_usage"
+path = "examples/cfg/usage.rs"
 
 [[example]]
-name = "cfg_serialization"
-path = "examples/cfg/cfg_serialization.rs"
-
-[[example]]
-name = "map_store"
+name = "kv_store_map_store"
 path = "examples/kv/store/map_store.rs"
