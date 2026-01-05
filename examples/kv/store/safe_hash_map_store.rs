@@ -1,17 +1,17 @@
 use anyhow::Result;
-use rustx::kv::store::{MapStore, MapStoreConfig, Store, SetOptions};
 use rustx::cfg::*;
+use rustx::kv::store::{SafeHashMapStore, SafeHashMapStoreConfig, SetOptions, Store};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // 零耦合自动注册！MapStore 完全不需要知道配置系统的存在
-    register::<MapStore<String, String>, MapStoreConfig>()?;
+    register::<SafeHashMapStore<String, String>, SafeHashMapStoreConfig>()?;
 
     println!("=== MapStore JSON 配置示例 ===");
 
     // JSON 配置示例 - 使用已知的类型名
     let json_config = r#"{
-        "type": "rustx::kv::store::map_store::MapStore<alloc::string::String, alloc::string::String>",
+        "type": "rustx::kv::store::safe_hash_map_store::SafeHashMapStore<alloc::string::String, alloc::string::String>",
         "options": {
             "initial_capacity": 1000,
             "enable_stats": true
@@ -22,12 +22,16 @@ async fn main() -> Result<()> {
     println!("🔍 使用的类型名: {}", type_options.type_name);
     let store_obj = create_from_type_options(&type_options)?;
 
-    if let Some(store) = store_obj.downcast_ref::<MapStore<String, String>>() {
+    if let Some(store) = store_obj.downcast_ref::<SafeHashMapStore<String, String>>() {
         println!("✅ JSON配置创建MapStore成功");
 
         // 测试基本操作
-        store.set("key1".to_string(), "val1".to_string(), SetOptions::new()).await?;
-        store.set("key2".to_string(), "val2".to_string(), SetOptions::new()).await?;
+        store
+            .set("key1".to_string(), "val1".to_string(), SetOptions::new())
+            .await?;
+        store
+            .set("key2".to_string(), "val2".to_string(), SetOptions::new())
+            .await?;
 
         let val1 = store.get("key1".to_string()).await?;
         let val2 = store.get("key2".to_string()).await?;
@@ -36,9 +40,15 @@ async fn main() -> Result<()> {
 
         // 测试批量操作
         let keys = vec!["key1".to_string(), "key2".to_string(), "key3".to_string()];
-        let values = vec!["value1".to_string(), "value2".to_string(), "value3".to_string()];
+        let values = vec![
+            "value1".to_string(),
+            "value2".to_string(),
+            "value3".to_string(),
+        ];
 
-        let batch_results = store.batch_set(keys.clone(), values, SetOptions::new()).await?;
+        let batch_results = store
+            .batch_set(keys.clone(), values, SetOptions::new())
+            .await?;
         println!("📝 批量设置结果: {:?}", batch_results);
 
         let (batch_values, batch_errors) = store.batch_get(keys).await?;
