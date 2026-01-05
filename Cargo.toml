@@ -31,10 +31,6 @@ name = "cfg_serialization"
 path = "examples/cfg/cfg_serialization.rs"
 
 [[example]]
-name = "kv_placeholder"
-path = "examples/kv/kv_placeholder.rs"
-
-[[example]]
 name = "map_store_example"
 path = "examples/kv/map_store_example.rs"
 
