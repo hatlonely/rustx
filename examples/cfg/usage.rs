@@ -31,8 +31,8 @@ impl Service {
     }
 }
 
-impl WithConfig<ServiceConfig> for Service {
-    fn with_config(config: ServiceConfig) -> Self {
+impl From<ServiceConfig> for Service {
+    fn from(config: ServiceConfig) -> Self {
         Service::new(config)
     }
 }

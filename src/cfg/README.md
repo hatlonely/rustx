@@ -58,9 +58,9 @@ impl Service {
     }
 }
 
-// 3. 实现零耦合配置接口（唯一需要的！）
-impl WithConfig<ServiceConfig> for Service {
-    fn with_config(config: ServiceConfig) -> Self {
+// 3. 实现 From trait（使用标准库，符合 Rust 惯用法）
+impl From<ServiceConfig> for Service {
+    fn from(config: ServiceConfig) -> Self {
         Service::new(config)
     }
 }
@@ -101,15 +101,17 @@ async fn main() -> Result<()> {
 
 ## 🏗️ 核心概念
 
-### 1. WithConfig Trait
+### 1. From Trait
 
-零耦合的配置接口，这是唯一需要实现的：
+使用 Rust 标准库的 From trait 进行类型转换：
 
 ```rust
-pub trait WithConfig<Config> {
-    fn with_config(config: Config) -> Self;
+pub trait From<T> {
+    fn from(value: T) -> Self;
 }
 ```
+
+这符合 Rust 惯用法，并自动获得 Into trait 的实现。
 
 ### 2. TypeOptions 结构
 
@@ -214,13 +216,13 @@ use rustx::kv::store::{MapStore, MapStoreConfig};
 use rustx::cfg::*;
 
 // MapStore 完全不知道配置系统的存在
-// 只需要实现 WithConfig trait
-impl<K, V> WithConfig<MapStoreConfig> for MapStore<K, V> 
-where 
+// 只需要实现 From trait
+impl<K, V> From<MapStoreConfig> for MapStore<K, V>
+where
     K: Clone + Send + Sync + Eq + Hash + 'static,
     V: Clone + Send + Sync + 'static,
 {
-    fn with_config(config: MapStoreConfig) -> Self {
+    fn from(config: MapStoreConfig) -> Self {
         MapStore::with_config(config)  // 复用已有方法
     }
 }
@@ -278,7 +280,7 @@ async fn main() -> Result<()> {
 ## 🎯 设计原则
 
 1. **零耦合** - 业务代码不依赖配置系统
-2. **最小接口** - 只需实现 `WithConfig` trait
+2. **标准化** - 使用 Rust 标准库的 `From` trait，符合惯用法
 3. **自动化** - 自动生成类型名，减少手工配置
 4. **类型安全** - 编译时类型检查
 5. **性能优先** - 零成本抽象

@@ -19,7 +19,7 @@ pub mod cfg;
 pub mod kv;
 
 // 重新导出主要的公共 API
-pub use cfg::{TypeOptions, register_with_name, register, WithConfig, create_from_type_options};
+pub use cfg::{TypeOptions, register_with_name, register, create_from_type_options};
 
 pub use kv::{
     Store, KvError, SetOptions,

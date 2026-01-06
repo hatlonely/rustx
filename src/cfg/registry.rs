@@ -8,7 +8,7 @@ use once_cell::sync::Lazy;
 use std::sync::RwLock;
 use anyhow::{Result, anyhow};
 
-use super::config::{TypeOptions, WithConfig};
+use super::config::TypeOptions;
 
 // 构造函数类型
 type Constructor = Box<dyn Fn(JsonValue) -> Result<Box<dyn Any + Send + Sync>> + Send + Sync>;
@@ -18,23 +18,23 @@ static REGISTRY: Lazy<RwLock<HashMap<String, Constructor>>> = Lazy::new(|| {
     RwLock::new(HashMap::new())
 });
 
-/// 智能注册方法 - 自动为任何有 with_config 的类型创建适配器
+/// 智能注册方法 - 自动为任何实现 From<Config> 的类型创建适配器
 ///
 /// 这个方法会：
-/// 1. 自动检测类型的 with_config 方法
+/// 1. 使用标准库的 From trait 进行类型转换
 /// 2. 生成合适的类型名称
 /// 3. 创建透明的配置适配器
-/// 4. 完全无需类型实现任何 trait
+/// 4. 符合 Rust 惯用法
 pub fn register_with_name<T, Config>(type_name: &str) -> Result<()>
 where
     T: Send + Sync + 'static,
     Config: DeserializeOwned + Clone + Send + Sync + 'static,
-    T: WithConfig<Config>,
+    T: From<Config>,
 {
     let type_name = type_name.to_string();
     let constructor: Constructor = Box::new(|value| {
         let config: Config = serde_json::from_value(value)?;
-        let instance = T::with_config(config);
+        let instance = T::from(config);
         Ok(Box::new(instance))
     });
 
@@ -48,7 +48,7 @@ pub fn register<T, Config>() -> Result<()>
 where
     T: Send + Sync + 'static,
     Config: DeserializeOwned + Clone + Send + Sync + 'static,
-    T: WithConfig<Config>,
+    T: From<Config>,
 {
     // 同时使用完整类型名和简短类型名进行注册，解决名称冲突问题
     let full_type_name = generate_auto_type_name::<T>();
@@ -205,8 +205,8 @@ mod tests {
         config: TestConfig,
     }
 
-    impl WithConfig<TestConfig> for TestService {
-        fn with_config(config: TestConfig) -> Self {
+    impl From<TestConfig> for TestService {
+        fn from(config: TestConfig) -> Self {
             Self { config }
         }
     }
@@ -245,8 +245,8 @@ mod tests {
             value: String,
         }
 
-        impl WithConfig<CustomConfig> for CustomService {
-            fn with_config(config: CustomConfig) -> Self {
+        impl From<CustomConfig> for CustomService {
+            fn from(config: CustomConfig) -> Self {
                 Self { value: config.value }
             }
         }
@@ -367,8 +367,8 @@ mod tests {
             value: String,
         }
 
-        impl WithConfig<AnotherConfig> for AnotherService {
-            fn with_config(config: AnotherConfig) -> Self {
+        impl From<AnotherConfig> for AnotherService {
+            fn from(config: AnotherConfig) -> Self {
                 Self { value: config.value }
             }
         }

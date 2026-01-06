@@ -170,13 +170,13 @@ where
     }
 }
 
-// 为 MapStore 实现 WithConfig trait - 这是唯一需要的！
-impl<K, V> crate::cfg::config::WithConfig<SafeHashMapStoreConfig> for SafeHashMapStore<K, V>
+// 为 SafeHashMapStore 实现 From trait - 使用标准库 trait
+impl<K, V> From<SafeHashMapStoreConfig> for SafeHashMapStore<K, V>
 where
     K: Clone + Send + Sync + Eq + Hash + 'static,
     V: Clone + Send + Sync + 'static,
 {
-    fn with_config(config: SafeHashMapStoreConfig) -> Self {
+    fn from(config: SafeHashMapStoreConfig) -> Self {
         SafeHashMapStore::with_config(config)
     }
 }

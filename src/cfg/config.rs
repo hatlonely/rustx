@@ -3,11 +3,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-/// 配置接口 trait - 定义类型如何从配置创建实例
-pub trait WithConfig<Config> {
-    fn with_config(config: Config) -> Self;
-}
-
 /// 类型选项结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TypeOptions {

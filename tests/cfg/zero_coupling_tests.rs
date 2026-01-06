@@ -61,9 +61,9 @@ impl WebServer {
     }
 }
 
-/// 零耦合配置实现
-impl WithConfig<WebServerConfig> for WebServer {
-    fn with_config(config: WebServerConfig) -> Self {
+/// 零耦合配置实现 - 使用标准库 From trait
+impl From<WebServerConfig> for WebServer {
+    fn from(config: WebServerConfig) -> Self {
         WebServer::new(config)
     }
 }
@@ -94,8 +94,8 @@ struct Database {
     connected: bool,
 }
 
-impl WithConfig<DatabaseConfig> for Database {
-    fn with_config(config: DatabaseConfig) -> Self {
+impl From<DatabaseConfig> for Database {
+    fn from(config: DatabaseConfig) -> Self {
         Self {
             config,
             connected: true,
@@ -119,8 +119,8 @@ struct Cache {
     config: CacheConfig,
 }
 
-impl WithConfig<CacheConfig> for Cache {
-    fn with_config(config: CacheConfig) -> Self {
+impl From<CacheConfig> for Cache {
+    fn from(config: CacheConfig) -> Self {
         Self { config }
     }
 }

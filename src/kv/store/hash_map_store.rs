@@ -200,12 +200,12 @@ where
     }
 }
 
-impl<K, V> crate::cfg::config::WithConfig<HashMapStoreConfig> for HashMapStore<K, V>
+impl<K, V> From<HashMapStoreConfig> for HashMapStore<K, V>
 where
     K: Clone + Send + Sync + Eq + Hash + 'static,
     V: Clone + Send + Sync + 'static,
 {
-    fn with_config(config: HashMapStoreConfig) -> Self {
+    fn from(config: HashMapStoreConfig) -> Self {
         HashMapStore::with_config(config)
     }
 }

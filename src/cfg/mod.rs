@@ -9,5 +9,5 @@ pub mod serialization;
 pub mod duration;
 
 // 重新导出公共 API
-pub use config::{TypeOptions, WithConfig};
+pub use config::TypeOptions;
 pub use registry::{register_with_name, register, create_from_type_options};
