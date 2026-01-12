@@ -5,7 +5,7 @@
 // 模块声明
 pub mod config;
 pub mod registry;
-pub mod serialization;
+pub mod type_options;
 pub mod serde_duration;
 
 // 重新导出公共 API
