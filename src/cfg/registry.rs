@@ -8,7 +8,7 @@ use once_cell::sync::Lazy;
 use std::sync::RwLock;
 use anyhow::{Result, anyhow};
 
-use super::config::TypeOptions;
+use super::type_options::TypeOptions;
 
 // 构造函数类型
 type Constructor = Box<dyn Fn(JsonValue) -> Result<Box<dyn Any + Send + Sync>> + Send + Sync>;
@@ -191,7 +191,7 @@ pub fn create_from_type_options(type_options: &TypeOptions) -> Result<Box<dyn An
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cfg::config::TypeOptions;
+    use crate::cfg::type_options::TypeOptions;
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
