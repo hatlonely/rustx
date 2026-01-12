@@ -45,9 +45,11 @@ pub trait ConfigSource: Send + Sync {
     ///
     /// # 示例
     /// ```no_run
-    /// use rustx::cfg::{ConfigSource, FileSource, ConfigChange};
+    /// use rustx::cfg::{ConfigSource, FileSource, FileSourceConfig, ConfigChange};
     ///
-    /// let source = FileSource::new("config");
+    /// let source = FileSource::new(FileSourceConfig {
+    ///     base_path: "config".to_string(),
+    /// });
     /// source.watch("database", |change| {
     ///     match change {
     ///         ConfigChange::Updated(config) => println!("配置已更新"),

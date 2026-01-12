@@ -297,7 +297,7 @@ mod tests {
         // 测试序列化
         let serialized = serde_json::to_string(&config).unwrap();
         assert!(serialized.contains("1000"));
-        assert!(serialized.contains("true"));
+        assert!(serialized.contains("initial_capacity"));
 
         // 测试反序列化
         let deserialized: SafeHashMapStoreConfig = serde_json::from_str(&serialized).unwrap();

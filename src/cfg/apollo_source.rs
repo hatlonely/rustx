@@ -2,13 +2,13 @@
 //!
 //! 支持从 Apollo 配置中心加载配置，支持长轮询监听配置变化
 
+use anyhow::{anyhow, Result};
+use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use anyhow::{anyhow, Result};
-use serde::{Deserialize, Serialize};
 
-use super::source::{ConfigSource, ConfigChange, WatchHandle};
+use super::source::{ConfigChange, ConfigSource, WatchHandle};
 use super::type_options::TypeOptions;
 
 /// Apollo 配置中心源的配置
@@ -113,7 +113,6 @@ impl From<ApolloSourceConfig> for ApolloSource {
 }
 
 impl ApolloSource {
-
     /// 从 Apollo 获取指定命名空间的完整配置
     fn fetch_namespace_config(&self) -> Result<ApolloResponse> {
         let url = format!(
@@ -128,10 +127,7 @@ impl ApolloSource {
             .map_err(|e| anyhow!("请求 Apollo 失败: {}", e))?;
 
         if !resp.status().is_success() {
-            return Err(anyhow!(
-                "Apollo 返回错误状态: {}",
-                resp.status()
-            ));
+            return Err(anyhow!("Apollo 返回错误状态: {}", resp.status()));
         }
 
         resp.json::<ApolloResponse>()
@@ -222,22 +218,38 @@ impl ConfigSource for ApolloSource {
                                             );
 
                                             match temp_client.get(&fetch_url).send() {
-                                                Ok(config_resp) if config_resp.status().is_success() => {
-                                                    if let Ok(apollo_resp) = config_resp.json::<ApolloResponse>() {
-                                                        if let Some(config_value) = apollo_resp.configurations.get(&key_owned) {
-                                                            let result = if let Some(config_str) = config_value.as_str() {
+                                                Ok(config_resp)
+                                                    if config_resp.status().is_success() =>
+                                                {
+                                                    if let Ok(apollo_resp) =
+                                                        config_resp.json::<ApolloResponse>()
+                                                    {
+                                                        if let Some(config_value) = apollo_resp
+                                                            .configurations
+                                                            .get(&key_owned)
+                                                        {
+                                                            let result = if let Some(config_str) =
+                                                                config_value.as_str()
+                                                            {
                                                                 TypeOptions::from_json(config_str)
                                                             } else {
-                                                                TypeOptions::from_json(&config_value.to_string())
+                                                                TypeOptions::from_json(
+                                                                    &config_value.to_string(),
+                                                                )
                                                             };
 
                                                             match result {
                                                                 Ok(config) => {
-                                                                    handler(ConfigChange::Updated(config));
+                                                                    handler(ConfigChange::Updated(
+                                                                        config,
+                                                                    ));
                                                                 }
                                                                 Err(e) => {
                                                                     handler(ConfigChange::Error(
-                                                                        format!("解析配置失败: {}", e)
+                                                                        format!(
+                                                                            "解析配置失败: {}",
+                                                                            e
+                                                                        ),
                                                                     ));
                                                                 }
                                                             }
@@ -247,17 +259,19 @@ impl ConfigSource for ApolloSource {
                                                     }
                                                 }
                                                 Err(e) => {
-                                                    handler(ConfigChange::Error(
-                                                        format!("重新加载配置失败: {}", e)
-                                                    ));
+                                                    handler(ConfigChange::Error(format!(
+                                                        "重新加载配置失败: {}",
+                                                        e
+                                                    )));
                                                 }
                                                 _ => {}
                                             }
                                         }
                                         Err(e) => {
-                                            handler(ConfigChange::Error(
-                                                format!("创建 HTTP 客户端失败: {}", e)
-                                            ));
+                                            handler(ConfigChange::Error(format!(
+                                                "创建 HTTP 客户端失败: {}",
+                                                e
+                                            )));
                                         }
                                     }
                                 }
@@ -306,12 +320,7 @@ impl ConfigSource for ApolloSource {
 mod tests {
     use super::*;
 
-    // 注意：这些测试需要 Apollo 服务器运行
-    // 可以使用 docker-compose 快速启动 Apollo 服务
-    // 实际项目中可以使用 mock server 进行测试
-
     #[test]
-    #[ignore] // 需要 Apollo 服务器运行
     fn test_apollo_source_new() -> Result<()> {
         let source = ApolloSource::new(ApolloSourceConfig {
             server_url: "http://localhost:8080".to_string(),
@@ -339,44 +348,197 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // 需要 Apollo 服务器运行
-    fn test_apollo_source_load() -> Result<()> {
+    fn test_apollo_source_config_defaults() {
+        // 测试配置默认值
+        let config: ApolloSourceConfig = serde_json::from_str(
+            r#"{
+            "server_url": "http://localhost:8080",
+            "app_id": "test-app"
+        }"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.namespace, "application");
+        assert_eq!(config.cluster, "default");
+    }
+
+    #[test]
+    fn test_apollo_source_load_with_mock() -> Result<()> {
+        // 使用 mockito mock HTTP 响应
+        let mut server = mockito::Server::new();
+
+        let mock = server.mock("GET", "/configs/test-app/default/application")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{
+                "releaseKey": "20240101000000-abc123",
+                "configurations": {
+                    "database": "{\"type\":\"DatabaseService\",\"options\":{\"host\":\"localhost\",\"port\":3306}}"
+                }
+            }"#)
+            .create();
+
         let source = ApolloSource::new(ApolloSourceConfig {
-            server_url: "http://localhost:8080".to_string(),
+            server_url: server.url(),
             app_id: "test-app".to_string(),
             namespace: "application".to_string(),
             cluster: "default".to_string(),
         })?;
 
-        // 假设 Apollo 中有 "database" 配置
         let config = source.load("database")?;
+
+        mock.assert();
         assert_eq!(config.type_name, "DatabaseService");
+        assert_eq!(
+            config.options.get("host").and_then(|v| v.as_str()),
+            Some("localhost")
+        );
+        assert_eq!(
+            config.options.get("port").and_then(|v| v.as_i64()),
+            Some(3306)
+        );
 
         Ok(())
     }
 
     #[test]
-    #[ignore] // 需要 Apollo 服务器运行
-    fn test_apollo_source_watch() -> Result<()> {
-        use std::sync::{Arc, RwLock};
+    fn test_apollo_source_load_json_object() -> Result<()> {
+        // 测试配置值是 JSON 对象而非字符串的情况
+        let mut server = mockito::Server::new();
+
+        let mock = server.mock("GET", "/configs/test-app/default/application")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{
+                "releaseKey": "20240101000000-abc123",
+                "configurations": {
+                    "redis": {"type": "RedisService", "options": {"host": "127.0.0.1", "port": 6379}}
+                }
+            }"#)
+            .create();
 
         let source = ApolloSource::new(ApolloSourceConfig {
-            server_url: "http://localhost:8080".to_string(),
+            server_url: server.url(),
             app_id: "test-app".to_string(),
             namespace: "application".to_string(),
             cluster: "default".to_string(),
         })?;
 
-        let changes = Arc::new(RwLock::new(Vec::new()));
-        let changes_clone = changes.clone();
+        let config = source.load("redis")?;
 
-        source.watch("database", move |change| {
-            changes_clone.write().unwrap().push(change);
-        })?;
-
-        // 等待一段时间观察变更
-        thread::sleep(Duration::from_secs(10));
+        mock.assert();
+        assert_eq!(config.type_name, "RedisService");
+        assert_eq!(
+            config.options.get("host").and_then(|v| v.as_str()),
+            Some("127.0.0.1")
+        );
+        assert_eq!(
+            config.options.get("port").and_then(|v| v.as_i64()),
+            Some(6379)
+        );
 
         Ok(())
+    }
+
+    #[test]
+    fn test_apollo_source_load_key_not_found() -> Result<()> {
+        let mut server = mockito::Server::new();
+
+        let mock = server
+            .mock("GET", "/configs/test-app/default/application")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{
+                "releaseKey": "20240101000000-abc123",
+                "configurations": {}
+            }"#,
+            )
+            .create();
+
+        let source = ApolloSource::new(ApolloSourceConfig {
+            server_url: server.url(),
+            app_id: "test-app".to_string(),
+            namespace: "application".to_string(),
+            cluster: "default".to_string(),
+        })?;
+
+        let result = source.load("nonexistent");
+
+        mock.assert();
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("不存在"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_apollo_source_load_server_error() -> Result<()> {
+        let mut server = mockito::Server::new();
+
+        let mock = server
+            .mock("GET", "/configs/test-app/default/application")
+            .with_status(500)
+            .with_body("Internal Server Error")
+            .create();
+
+        let source = ApolloSource::new(ApolloSourceConfig {
+            server_url: server.url(),
+            app_id: "test-app".to_string(),
+            namespace: "application".to_string(),
+            cluster: "default".to_string(),
+        })?;
+
+        let result = source.load("database");
+
+        mock.assert();
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("错误状态") || error_msg.contains("500"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_apollo_source_load_404() -> Result<()> {
+        let mut server = mockito::Server::new();
+
+        let mock = server
+            .mock("GET", "/configs/test-app/default/application")
+            .with_status(404)
+            .with_body("Not Found")
+            .create();
+
+        let source = ApolloSource::new(ApolloSourceConfig {
+            server_url: server.url(),
+            app_id: "test-app".to_string(),
+            namespace: "application".to_string(),
+            cluster: "default".to_string(),
+        })?;
+
+        let result = source.load("database");
+
+        mock.assert();
+        assert!(result.is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_apollo_source_from_config() {
+        let config = ApolloSourceConfig {
+            server_url: "http://localhost:8080".to_string(),
+            app_id: "my-app".to_string(),
+            namespace: "custom".to_string(),
+            cluster: "prod".to_string(),
+        };
+
+        let source: ApolloSource = config.into();
+
+        assert_eq!(source.server_url, "http://localhost:8080");
+        assert_eq!(source.app_id, "my-app");
+        assert_eq!(source.namespace, "custom");
+        assert_eq!(source.cluster, "prod");
     }
 }

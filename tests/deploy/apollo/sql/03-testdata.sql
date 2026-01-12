@@ -20,12 +20,12 @@ INSERT INTO `Namespace` (`AppId`, `ClusterName`, `NamespaceName`, `DataChange_Cr
 VALUES ('test-app', 'default', 'application', 'apollo');
 
 -- 添加测试配置项
--- database 配置 (JSON 格式的配置)
+-- database 配置 (JSON 格式的配置，符合 TypeOptions 结构: {type, options})
 INSERT INTO `Item` (`NamespaceId`, `Key`, `Value`, `Comment`, `LineNum`, `DataChange_CreatedBy`)
 VALUES (
     (SELECT Id FROM `Namespace` WHERE AppId = 'test-app' AND ClusterName = 'default' AND NamespaceName = 'application'),
     'database',
-    '{"type":"DatabaseService","host":"localhost","port":3306,"username":"root","password":"secret","database":"test_db","max_connections":10}',
+    '{"type":"DatabaseService","options":{"host":"localhost","port":3306,"username":"root","password":"secret","database":"test_db","max_connections":10}}',
     '数据库配置',
     1,
     'apollo'
@@ -36,7 +36,7 @@ INSERT INTO `Item` (`NamespaceId`, `Key`, `Value`, `Comment`, `LineNum`, `DataCh
 VALUES (
     (SELECT Id FROM `Namespace` WHERE AppId = 'test-app' AND ClusterName = 'default' AND NamespaceName = 'application'),
     'redis',
-    '{"type":"RedisService","host":"localhost","port":6379,"password":"","database":0}',
+    '{"type":"RedisService","options":{"host":"localhost","port":6379,"password":"","database":0}}',
     'Redis配置',
     2,
     'apollo'
@@ -72,7 +72,7 @@ VALUES (
     'test-app',
     'default',
     'application',
-    '{"database":"{\\\"type\\\":\\\"DatabaseService\\\",\\\"host\\\":\\\"localhost\\\",\\\"port\\\":3306,\\\"username\\\":\\\"root\\\",\\\"password\\\":\\\"secret\\\",\\\"database\\\":\\\"test_db\\\",\\\"max_connections\\\":10}","redis":"{\\\"type\\\":\\\"RedisService\\\",\\\"host\\\":\\\"localhost\\\",\\\"port\\\":6379,\\\"password\\\":\\\"\\\",\\\"database\\\":0}","app.name":"RustX Test Application","app.version":"1.0.0"}',
+    '{"database":"{\\\"type\\\":\\\"DatabaseService\\\",\\\"options\\\":{\\\"host\\\":\\\"localhost\\\",\\\"port\\\":3306,\\\"username\\\":\\\"root\\\",\\\"password\\\":\\\"secret\\\",\\\"database\\\":\\\"test_db\\\",\\\"max_connections\\\":10}}","redis":"{\\\"type\\\":\\\"RedisService\\\",\\\"options\\\":{\\\"host\\\":\\\"localhost\\\",\\\"port\\\":6379,\\\"password\\\":\\\"\\\",\\\"database\\\":0}}","app.name":"RustX Test Application","app.version":"1.0.0"}',
     'apollo'
 );
 
@@ -84,3 +84,31 @@ VALUES ('test-app', '测试应用', 'TEST', '测试部门', 'apollo', 'apollo@ad
 
 INSERT INTO `AppNamespace` (`Name`, `AppId`, `Format`, `IsPublic`, `Comment`, `DataChange_CreatedBy`)
 VALUES ('application', 'test-app', 'properties', 0, '默认命名空间', 'apollo');
+
+-- 创建 OpenAPI Consumer 和 Token (用于功能测试动态修改配置)
+INSERT INTO `Consumer` (`Name`, `AppId`, `OrgId`, `OrgName`, `OwnerName`, `OwnerEmail`, `DataChange_CreatedBy`)
+VALUES ('rustx-test-consumer', 'test-app', 'TEST', '测试部门', 'apollo', 'apollo@admin.com', 'apollo');
+
+-- 创建固定的测试 Token (实际生产环境请使用安全的随机 token)
+INSERT INTO `ConsumerToken` (`ConsumerId`, `Token`, `DataChange_CreatedBy`)
+VALUES (
+    (SELECT Id FROM `Consumer` WHERE `Name` = 'rustx-test-consumer'),
+    'rustx-test-token-20240101',
+    'apollo'
+);
+
+-- 授权 Consumer 访问 test-app
+INSERT INTO `ConsumerRole` (`ConsumerId`, `RoleId`, `DataChange_CreatedBy`)
+VALUES (
+    (SELECT Id FROM `Consumer` WHERE `Name` = 'rustx-test-consumer'),
+    (SELECT Id FROM `Role` WHERE `RoleName` = 'ModifyNamespace+test-app+application'),
+    'apollo'
+);
+
+-- 授权发布权限
+INSERT INTO `ConsumerRole` (`ConsumerId`, `RoleId`, `DataChange_CreatedBy`)
+VALUES (
+    (SELECT Id FROM `Consumer` WHERE `Name` = 'rustx-test-consumer'),
+    (SELECT Id FROM `Role` WHERE `RoleName` = 'ReleaseNamespace+test-app+application'),
+    'apollo'
+);
