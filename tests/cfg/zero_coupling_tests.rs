@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use rustx::cfg::*;
-use rustx::cfg::duration::{serde_as, HumanDur};
+use rustx::cfg::serde_duration::{serde_as, HumanDur};
 use rustx::cfg::registry::generate_auto_type_name;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;

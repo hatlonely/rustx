@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rustx::cfg::duration::{serde_as, HumanDur};
+use rustx::cfg::serde_duration::{serde_as, HumanDur};
 use rustx::cfg::*;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;

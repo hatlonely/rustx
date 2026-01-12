@@ -6,7 +6,7 @@
 pub mod config;
 pub mod registry;
 pub mod serialization;
-pub mod duration;
+pub mod serde_duration;
 
 // 重新导出公共 API
 pub use config::TypeOptions;
