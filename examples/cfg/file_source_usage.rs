@@ -2,7 +2,7 @@
 //!
 //! 演示如何使用 FileSource 加载和监听配置文件
 
-use rustx::cfg::{ConfigChange, ConfigSource, FileSource};
+use rustx::cfg::{ConfigChange, ConfigSource, FileSource, FileSourceConfig};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
@@ -12,7 +12,9 @@ fn main() -> anyhow::Result<()> {
 
     // 1. 创建文件配置源
     println!("1. 创建 FileSource，指向 examples/cfg/configs 目录");
-    let source = FileSource::new("examples/cfg/configs");
+    let source = FileSource::new(FileSourceConfig {
+        base_path: "examples/cfg/configs".to_string(),
+    });
 
     // 2. 加载配置
     println!("2. 加载数据库配置");

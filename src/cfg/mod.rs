@@ -14,5 +14,5 @@ pub mod apollo_source;
 pub use type_options::TypeOptions;
 pub use registry::{register_with_name, register, create_from_type_options};
 pub use source::{ConfigSource, ConfigChange};
-pub use file_source::FileSource;
-pub use apollo_source::ApolloSource;
+pub use file_source::{FileSource, FileSourceConfig};
+pub use apollo_source::{ApolloSource, ApolloSourceConfig};

@@ -1,0 +1,19 @@
+# 测试环境部署 - 组合配置
+#
+# 此文件用于组合启动所有测试服务
+# 支持通过 profile 选择性启动服务
+#
+# 启动方式:
+#   启动所有服务: docker compose up -d
+#   仅启动 Apollo: docker compose --profile apollo up -d
+#   仅启动 Redis: docker compose --profile redis up -d (待实现)
+#   仅启动 MySQL: docker compose --profile mysql up -d (待实现)
+#
+# 停止方式:
+#   docker compose down -v
+
+include:
+  - path: ./apollo/docker-compose.yml
+    # 未来可以添加更多服务:
+    # - path: ./redis/docker-compose.yml
+    # - path: ./mysql/docker-compose.yml

@@ -7,9 +7,17 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use anyhow::{anyhow, Result};
+use serde::{Deserialize, Serialize};
 
 use super::source::{ConfigSource, ConfigChange, WatchHandle};
 use super::type_options::TypeOptions;
+
+/// 文件配置源的配置
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FileSourceConfig {
+    /// 配置文件所在目录
+    pub base_path: String,
+}
 
 /// 文件配置源
 ///
@@ -17,10 +25,12 @@ use super::type_options::TypeOptions;
 ///
 /// # 示例
 /// ```no_run
-/// use rustx::cfg::{ConfigSource, FileSource};
+/// use rustx::cfg::{ConfigSource, FileSource, FileSourceConfig};
 ///
 /// // 创建文件配置源，指向 config 目录
-/// let source = FileSource::new("config");
+/// let source = FileSource::new(FileSourceConfig {
+///     base_path: "config".to_string(),
+/// });
 ///
 /// // 加载 config/database.json
 /// let config = source.load("database").unwrap();
@@ -35,13 +45,22 @@ impl FileSource {
     /// 创建文件配置源
     ///
     /// # 参数
-    /// - `base_path`: 配置文件所在目录
-    pub fn new(base_path: impl Into<PathBuf>) -> Self {
+    /// - `config`: 文件配置源配置
+    pub fn new(config: FileSourceConfig) -> Self {
         Self {
-            base_path: base_path.into(),
+            base_path: config.base_path.into(),
             watches: Arc::new(Mutex::new(Vec::new())),
         }
     }
+}
+
+impl From<FileSourceConfig> for FileSource {
+    fn from(config: FileSourceConfig) -> Self {
+        FileSource::new(config)
+    }
+}
+
+impl FileSource {
 
     /// 根据 key 和扩展名构造文件路径
     fn get_file_path(&self, key: &str, ext: &str) -> PathBuf {
@@ -197,7 +216,9 @@ mod tests {
             }"#,
         )?;
 
-        let source = FileSource::new(temp_dir.path());
+        let source = FileSource::new(FileSourceConfig {
+            base_path: temp_dir.path().to_string_lossy().to_string(),
+        });
         let config = source.load("test")?;
 
         assert_eq!(config.type_name, "TestService");
@@ -222,7 +243,9 @@ options:
 "#,
         )?;
 
-        let source = FileSource::new(temp_dir.path());
+        let source = FileSource::new(FileSourceConfig {
+            base_path: temp_dir.path().to_string_lossy().to_string(),
+        });
         let config = source.load("test")?;
 
         assert_eq!(config.type_name, "TestService");
@@ -247,7 +270,9 @@ port = 3306
 "#,
         )?;
 
-        let source = FileSource::new(temp_dir.path());
+        let source = FileSource::new(FileSourceConfig {
+            base_path: temp_dir.path().to_string_lossy().to_string(),
+        });
         let config = source.load("test")?;
 
         assert_eq!(config.type_name, "TestService");
@@ -259,7 +284,9 @@ port = 3306
     #[test]
     fn test_file_source_not_found() {
         let temp_dir = TempDir::new().unwrap();
-        let source = FileSource::new(temp_dir.path());
+        let source = FileSource::new(FileSourceConfig {
+            base_path: temp_dir.path().to_string_lossy().to_string(),
+        });
 
         let result = source.load("nonexistent");
         assert!(result.is_err());
@@ -280,7 +307,9 @@ port = 3306
             }"#,
         )?;
 
-        let source = FileSource::new(temp_dir.path());
+        let source = FileSource::new(FileSourceConfig {
+            base_path: temp_dir.path().to_string_lossy().to_string(),
+        });
 
         // 使用 Arc<RwLock> 存储变更通知
         let changes = Arc::new(RwLock::new(Vec::new()));
@@ -333,7 +362,9 @@ port = 3306
             }"#,
         )?;
 
-        let source = FileSource::new(temp_dir.path());
+        let source = FileSource::new(FileSourceConfig {
+            base_path: temp_dir.path().to_string_lossy().to_string(),
+        });
 
         let changes = Arc::new(RwLock::new(Vec::new()));
         let changes_clone = changes.clone();
@@ -373,7 +404,9 @@ port = 3306
         )?;
 
         {
-            let source = FileSource::new(temp_dir.path());
+            let source = FileSource::new(FileSourceConfig {
+                base_path: temp_dir.path().to_string_lossy().to_string(),
+            });
             source.watch("cleanup_test", |_| {})?;
 
             // source 在这里 drop

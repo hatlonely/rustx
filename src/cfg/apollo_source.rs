@@ -6,10 +6,33 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use anyhow::{anyhow, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::source::{ConfigSource, ConfigChange, WatchHandle};
 use super::type_options::TypeOptions;
+
+/// Apollo 配置中心源的配置
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ApolloSourceConfig {
+    /// Apollo 服务器地址，如 "http://localhost:8080"
+    pub server_url: String,
+    /// 应用 ID
+    pub app_id: String,
+    /// 命名空间，默认为 "application"
+    #[serde(default = "default_namespace")]
+    pub namespace: String,
+    /// 集群名称，默认为 "default"
+    #[serde(default = "default_cluster")]
+    pub cluster: String,
+}
+
+fn default_namespace() -> String {
+    "application".to_string()
+}
+
+fn default_cluster() -> String {
+    "default".to_string()
+}
 
 /// Apollo 配置中心响应
 #[derive(Debug, Deserialize)]
@@ -36,10 +59,15 @@ struct ApolloNotification {
 ///
 /// # 示例
 /// ```no_run
-/// use rustx::cfg::{ConfigSource, ApolloSource};
+/// use rustx::cfg::{ConfigSource, ApolloSource, ApolloSourceConfig};
 ///
 /// // 创建 Apollo 配置源
-/// let source = ApolloSource::new("http://localhost:8080", "my-app").unwrap();
+/// let source = ApolloSource::new(ApolloSourceConfig {
+///     server_url: "http://localhost:8080".to_string(),
+///     app_id: "my-app".to_string(),
+///     namespace: "application".to_string(),
+///     cluster: "default".to_string(),
+/// }).unwrap();
 ///
 /// // 加载配置
 /// let config = source.load("database").unwrap();
@@ -60,49 +88,31 @@ pub struct ApolloSource {
 }
 
 impl ApolloSource {
-    /// 创建 Apollo 配置源（使用默认命名空间 "application"）
+    /// 创建 Apollo 配置源
     ///
     /// # 参数
-    /// - `server_url`: Apollo 服务器地址，如 "http://localhost:8080"
-    /// - `app_id`: 应用 ID
-    pub fn new(server_url: &str, app_id: &str) -> Result<Self> {
-        Self::with_namespace(server_url, app_id, "application")
-    }
-
-    /// 创建 Apollo 配置源（指定命名空间）
-    ///
-    /// # 参数
-    /// - `server_url`: Apollo 服务器地址
-    /// - `app_id`: 应用 ID
-    /// - `namespace`: 命名空间名称
-    pub fn with_namespace(server_url: &str, app_id: &str, namespace: &str) -> Result<Self> {
-        Self::with_cluster(server_url, app_id, "default", namespace)
-    }
-
-    /// 创建 Apollo 配置源（指定集群和命名空间）
-    ///
-    /// # 参数
-    /// - `server_url`: Apollo 服务器地址
-    /// - `app_id`: 应用 ID
-    /// - `cluster`: 集群名称
-    /// - `namespace`: 命名空间名称
-    pub fn with_cluster(
-        server_url: &str,
-        app_id: &str,
-        cluster: &str,
-        namespace: &str,
-    ) -> Result<Self> {
+    /// - `config`: Apollo 配置源配置
+    pub fn new(config: ApolloSourceConfig) -> Result<Self> {
         Ok(Self {
-            server_url: server_url.trim_end_matches('/').to_string(),
-            app_id: app_id.to_string(),
-            namespace: namespace.to_string(),
-            cluster: cluster.to_string(),
+            server_url: config.server_url.trim_end_matches('/').to_string(),
+            app_id: config.app_id,
+            namespace: config.namespace,
+            cluster: config.cluster,
             client: reqwest::blocking::Client::builder()
                 .timeout(Duration::from_secs(90))
                 .build()?,
             watches: Arc::new(Mutex::new(Vec::new())),
         })
     }
+}
+
+impl From<ApolloSourceConfig> for ApolloSource {
+    fn from(config: ApolloSourceConfig) -> Self {
+        ApolloSource::new(config).expect("创建 ApolloSource 失败")
+    }
+}
+
+impl ApolloSource {
 
     /// 从 Apollo 获取指定命名空间的完整配置
     fn fetch_namespace_config(&self) -> Result<ApolloResponse> {
@@ -303,7 +313,12 @@ mod tests {
     #[test]
     #[ignore] // 需要 Apollo 服务器运行
     fn test_apollo_source_new() -> Result<()> {
-        let source = ApolloSource::new("http://localhost:8080", "test-app")?;
+        let source = ApolloSource::new(ApolloSourceConfig {
+            server_url: "http://localhost:8080".to_string(),
+            app_id: "test-app".to_string(),
+            namespace: "application".to_string(),
+            cluster: "default".to_string(),
+        })?;
         assert_eq!(source.server_url, "http://localhost:8080");
         assert_eq!(source.app_id, "test-app");
         assert_eq!(source.namespace, "application");
@@ -313,7 +328,12 @@ mod tests {
 
     #[test]
     fn test_apollo_source_url_trim() -> Result<()> {
-        let source = ApolloSource::new("http://localhost:8080/", "test-app")?;
+        let source = ApolloSource::new(ApolloSourceConfig {
+            server_url: "http://localhost:8080/".to_string(),
+            app_id: "test-app".to_string(),
+            namespace: "application".to_string(),
+            cluster: "default".to_string(),
+        })?;
         assert_eq!(source.server_url, "http://localhost:8080");
         Ok(())
     }
@@ -321,7 +341,12 @@ mod tests {
     #[test]
     #[ignore] // 需要 Apollo 服务器运行
     fn test_apollo_source_load() -> Result<()> {
-        let source = ApolloSource::new("http://localhost:8080", "test-app")?;
+        let source = ApolloSource::new(ApolloSourceConfig {
+            server_url: "http://localhost:8080".to_string(),
+            app_id: "test-app".to_string(),
+            namespace: "application".to_string(),
+            cluster: "default".to_string(),
+        })?;
 
         // 假设 Apollo 中有 "database" 配置
         let config = source.load("database")?;
@@ -335,7 +360,12 @@ mod tests {
     fn test_apollo_source_watch() -> Result<()> {
         use std::sync::{Arc, RwLock};
 
-        let source = ApolloSource::new("http://localhost:8080", "test-app")?;
+        let source = ApolloSource::new(ApolloSourceConfig {
+            server_url: "http://localhost:8080".to_string(),
+            app_id: "test-app".to_string(),
+            namespace: "application".to_string(),
+            cluster: "default".to_string(),
+        })?;
 
         let changes = Arc::new(RwLock::new(Vec::new()));
         let changes_clone = changes.clone();
