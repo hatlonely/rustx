@@ -20,11 +20,21 @@ anyhow = "1.0"
 thiserror = "1.0"
 once_cell = "1.19"
 tokio = { version = "1.0", features = ["full"] }
+notify = "6.0"
+crossbeam = "0.8"
+reqwest = { version = "0.11", features = ["blocking", "json"] }
+
+[dev-dependencies]
+tempfile = "3.0"
 
 # Examples configuration
 [[example]]
 name = "cfg_usage"
 path = "examples/cfg/usage.rs"
+
+[[example]]
+name = "cfg_file_source_usage"
+path = "examples/cfg/file_source_usage.rs"
 
 [[example]]
 name = "kv_store_safe_hash_map_store"
