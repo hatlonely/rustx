@@ -8,8 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use super::source::{ConfigChange, ConfigSource, WatchHandle};
-use super::type_options::TypeOptions;
+use super::source::{ConfigChange, ConfigSource, ConfigValue, WatchHandle};
 
 /// Apollo 配置中心源的配置
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -136,7 +135,7 @@ impl ApolloSource {
 }
 
 impl ConfigSource for ApolloSource {
-    fn load(&self, key: &str) -> Result<TypeOptions> {
+    fn load(&self, key: &str) -> Result<ConfigValue> {
         let apollo_resp = self.fetch_namespace_config()?;
 
         // 从 Apollo 配置中提取特定 key
@@ -147,11 +146,12 @@ impl ConfigSource for ApolloSource {
 
         // Apollo 中的值可能是 JSON 字符串，也可能直接是 JSON 对象
         // 如果是字符串，先尝试解析；如果是对象，直接使用
-        if let Some(config_str) = config_value.as_str() {
-            TypeOptions::from_json(config_str)
+        let value = if let Some(config_str) = config_value.as_str() {
+            serde_json::from_str(config_str)?
         } else {
-            TypeOptions::from_json(&config_value.to_string())
-        }
+            config_value.clone()
+        };
+        Ok(ConfigValue::new(value))
     }
 
     fn watch<F>(&self, key: &str, handler: F) -> Result<()>
@@ -228,20 +228,18 @@ impl ConfigSource for ApolloSource {
                                                             .configurations
                                                             .get(&key_owned)
                                                         {
-                                                            let result = if let Some(config_str) =
+                                                            let value = if let Some(config_str) =
                                                                 config_value.as_str()
                                                             {
-                                                                TypeOptions::from_json(config_str)
+                                                                serde_json::from_str(config_str)
                                                             } else {
-                                                                TypeOptions::from_json(
-                                                                    &config_value.to_string(),
-                                                                )
+                                                                Ok(config_value.clone())
                                                             };
 
-                                                            match result {
-                                                                Ok(config) => {
+                                                            match value {
+                                                                Ok(v) => {
                                                                     handler(ConfigChange::Updated(
-                                                                        config,
+                                                                        ConfigValue::new(v),
                                                                     ));
                                                                 }
                                                                 Err(e) => {
@@ -367,15 +365,18 @@ mod tests {
         // 使用 mockito mock HTTP 响应
         let mut server = mockito::Server::new();
 
-        let mock = server.mock("GET", "/configs/test-app/default/application")
+        let mock = server
+            .mock("GET", "/configs/test-app/default/application")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{
+            .with_body(
+                r#"{
                 "releaseKey": "20240101000000-abc123",
                 "configurations": {
-                    "database": "{\"type\":\"DatabaseService\",\"options\":{\"host\":\"localhost\",\"port\":3306}}"
+                    "database": "{\"host\":\"localhost\",\"port\":3306}"
                 }
-            }"#)
+            }"#,
+            )
             .create();
 
         let source = ApolloSource::new(ApolloSourceConfig {
@@ -388,13 +389,12 @@ mod tests {
         let config = source.load("database")?;
 
         mock.assert();
-        assert_eq!(config.type_name, "DatabaseService");
         assert_eq!(
-            config.options.get("host").and_then(|v| v.as_str()),
+            config.as_value().get("host").and_then(|v| v.as_str()),
             Some("localhost")
         );
         assert_eq!(
-            config.options.get("port").and_then(|v| v.as_i64()),
+            config.as_value().get("port").and_then(|v| v.as_i64()),
             Some(3306)
         );
 
@@ -406,15 +406,18 @@ mod tests {
         // 测试配置值是 JSON 对象而非字符串的情况
         let mut server = mockito::Server::new();
 
-        let mock = server.mock("GET", "/configs/test-app/default/application")
+        let mock = server
+            .mock("GET", "/configs/test-app/default/application")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{
+            .with_body(
+                r#"{
                 "releaseKey": "20240101000000-abc123",
                 "configurations": {
-                    "redis": {"type": "RedisService", "options": {"host": "127.0.0.1", "port": 6379}}
+                    "redis": {"host": "127.0.0.1", "port": 6379}
                 }
-            }"#)
+            }"#,
+            )
             .create();
 
         let source = ApolloSource::new(ApolloSourceConfig {
@@ -427,13 +430,12 @@ mod tests {
         let config = source.load("redis")?;
 
         mock.assert();
-        assert_eq!(config.type_name, "RedisService");
         assert_eq!(
-            config.options.get("host").and_then(|v| v.as_str()),
+            config.as_value().get("host").and_then(|v| v.as_str()),
             Some("127.0.0.1")
         );
         assert_eq!(
-            config.options.get("port").and_then(|v| v.as_i64()),
+            config.as_value().get("port").and_then(|v| v.as_i64()),
             Some(6379)
         );
 

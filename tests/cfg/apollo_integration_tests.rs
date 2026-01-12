@@ -77,6 +77,7 @@ impl ApolloOpenApiClient {
     }
 
     /// 创建配置项
+    #[allow(dead_code)]
     fn create_item(
         &self,
         app_id: &str,
@@ -168,16 +169,15 @@ mod tests {
 
     /// 测试从 Apollo 加载 database 配置
     #[test]
-    #[ignore] // 需要 Apollo 服务运行
     fn test_load_database_config() -> Result<()> {
         let source = create_apollo_source()?;
 
         // 加载预置的 database 配置
         let config = source.load("database")?;
 
-        // 验证配置内容
-        assert_eq!(config.type_name, "DatabaseService");
-        let options = config.options;
+        // 验证配置内容 - 配置结构为 {type, options: {...}}
+        let value = config.as_value();
+        let options = value.get("options").expect("应该有 options 字段");
         assert_eq!(
             options.get("host").and_then(|v| v.as_str()),
             Some("localhost")
@@ -197,14 +197,14 @@ mod tests {
 
     /// 测试加载 redis 配置
     #[test]
-    #[ignore] // 需要 Apollo 服务运行
     fn test_load_redis_config() -> Result<()> {
         let source = create_apollo_source()?;
 
         let config = source.load("redis")?;
 
-        assert_eq!(config.type_name, "RedisService");
-        let options = config.options;
+        // 验证配置内容 - 配置结构为 {type, options: {...}}
+        let value = config.as_value();
+        let options = value.get("options").expect("应该有 options 字段");
         assert_eq!(
             options.get("host").and_then(|v| v.as_str()),
             Some("localhost")
@@ -216,7 +216,6 @@ mod tests {
 
     /// 测试加载不存在的 key
     #[test]
-    #[ignore] // 需要 Apollo 服务运行
     fn test_load_nonexistent_key() -> Result<()> {
         let source = create_apollo_source()?;
 
@@ -237,7 +236,6 @@ mod tests {
     /// 3. 发布配置
     /// 4. 验证 watch 回调被触发
     #[test]
-    #[ignore] // 需要 Apollo 服务运行
     fn test_watch_config_change() -> Result<()> {
         let source = create_apollo_source()?;
         let openapi = create_openapi_client();
@@ -255,7 +253,7 @@ mod tests {
         // 等待 watch 线程启动
         thread::sleep(Duration::from_secs(2));
 
-        // 修改配置 (符合 TypeOptions 格式: {type, options})
+        // 修改配置 - 配置结构为 {type, options: {...}}
         let new_value = r#"{"type":"DatabaseService","options":{"host":"new-host","port":3307,"username":"root","password":"new-secret","database":"test_db","max_connections":20}}"#;
         openapi.update_item(
             APOLLO_APP_ID,
@@ -284,21 +282,19 @@ mod tests {
                 received = true;
                 // 验证收到的是更新事件
                 if let Some(ConfigChange::Updated(config)) = changes_guard.last() {
-                    assert_eq!(config.type_name, "DatabaseService");
+                    let value = config.as_value();
+                    let options = value.get("options").expect("应该有 options 字段");
                     assert_eq!(
-                        config.options.get("host").and_then(|v| v.as_str()),
+                        options.get("host").and_then(|v| v.as_str()),
                         Some("new-host")
                     );
-                    assert_eq!(
-                        config.options.get("port").and_then(|v| v.as_i64()),
-                        Some(3307)
-                    );
+                    assert_eq!(options.get("port").and_then(|v| v.as_i64()), Some(3307));
                 }
                 break;
             }
         }
 
-        // 恢复原始配置
+        // 恢复原始配置 - 配置结构为 {type, options: {...}}
         let original_value = r#"{"type":"DatabaseService","options":{"host":"localhost","port":3306,"username":"root","password":"secret","database":"test_db","max_connections":10}}"#;
         openapi.update_item(
             APOLLO_APP_ID,
@@ -323,7 +319,6 @@ mod tests {
 
     /// 测试 watch 连接错误处理
     #[test]
-    #[ignore] // 需要 Apollo 服务运行
     fn test_watch_error_handling() -> Result<()> {
         // 使用错误的服务器地址
         let source = ApolloSource::new(ApolloSourceConfig {

@@ -232,3 +232,78 @@ CREATE TABLE IF NOT EXISTS `ServiceRegistry` (
   UNIQUE KEY `IX_UNIQUE_KEY` (`ServiceName`,`Uri`),
   KEY `IX_DataChange_LastTime` (`DataChange_LastTime`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='服务注册表';
+
+-- Commit 表 (配置变更历史)
+CREATE TABLE IF NOT EXISTS `Commit` (
+  `Id` int(10) unsigned NOT NULL AUTO_INCREMENT COMMENT 'primary key',
+  `ChangeSets` longtext NOT NULL COMMENT 'change sets',
+  `AppId` varchar(64) NOT NULL DEFAULT 'default' COMMENT 'AppID',
+  `ClusterName` varchar(500) NOT NULL DEFAULT 'default' COMMENT 'ClusterName',
+  `NamespaceName` varchar(500) NOT NULL DEFAULT 'default' COMMENT 'namespaceName',
+  `Comment` varchar(500) DEFAULT NULL COMMENT 'comment',
+  `IsDeleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '1: deleted, 0: normal',
+  `DeletedAt` bigint(20) NOT NULL DEFAULT '0' COMMENT 'Delete timestamp based on Mo',
+  `DataChange_CreatedBy` varchar(64) NOT NULL DEFAULT 'default' COMMENT 'creator',
+  `DataChange_CreatedTime` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'create time',
+  `DataChange_LastModifiedBy` varchar(64) DEFAULT '' COMMENT 'last modifier',
+  `DataChange_LastTime` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'last modified time',
+  PRIMARY KEY (`Id`),
+  KEY `DataChange_LastTime` (`DataChange_LastTime`),
+  KEY `AppId` (`AppId`),
+  KEY `ClusterName` (`ClusterName`(191)),
+  KEY `NamespaceName` (`NamespaceName`(191))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='commit history';
+
+-- GrayReleaseRule 表 (灰度发布规则)
+CREATE TABLE IF NOT EXISTS `GrayReleaseRule` (
+  `Id` int(10) unsigned NOT NULL AUTO_INCREMENT COMMENT 'primary key',
+  `AppId` varchar(64) NOT NULL DEFAULT 'default' COMMENT 'AppID',
+  `ClusterName` varchar(32) NOT NULL DEFAULT 'default' COMMENT 'ClusterName',
+  `NamespaceName` varchar(32) NOT NULL DEFAULT 'default' COMMENT 'namespaceName',
+  `BranchName` varchar(32) NOT NULL DEFAULT 'default' COMMENT 'branch name',
+  `Rules` varchar(16000) DEFAULT '[]' COMMENT 'gray rules',
+  `ReleaseId` int(10) unsigned NOT NULL DEFAULT '0' COMMENT 'release id',
+  `BranchStatus` tinyint(2) DEFAULT '1' COMMENT 'branch status: 0-deleted, 1-active, 2-merged',
+  `IsDeleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '1: deleted, 0: normal',
+  `DeletedAt` bigint(20) NOT NULL DEFAULT '0' COMMENT 'Delete timestamp based on Mo',
+  `DataChange_CreatedBy` varchar(64) NOT NULL DEFAULT 'default' COMMENT 'creator',
+  `DataChange_CreatedTime` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'create time',
+  `DataChange_LastModifiedBy` varchar(64) DEFAULT '' COMMENT 'last modifier',
+  `DataChange_LastTime` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'last modified time',
+  PRIMARY KEY (`Id`),
+  KEY `DataChange_LastTime` (`DataChange_LastTime`),
+  KEY `IX_Namespace` (`AppId`,`ClusterName`,`NamespaceName`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='gray release rules';
+
+-- InstanceConfig 表
+CREATE TABLE IF NOT EXISTS `InstanceConfig` (
+  `Id` int(10) unsigned NOT NULL AUTO_INCREMENT COMMENT 'primary key',
+  `InstanceId` int(10) unsigned DEFAULT NULL COMMENT 'instance id',
+  `ConfigAppId` varchar(64) NOT NULL DEFAULT 'default' COMMENT 'config appid',
+  `ConfigClusterName` varchar(32) NOT NULL DEFAULT 'default' COMMENT 'config cluster name',
+  `ConfigNamespaceName` varchar(32) NOT NULL DEFAULT 'default' COMMENT 'config namespace name',
+  `ReleaseKey` varchar(64) NOT NULL DEFAULT '' COMMENT 'release key',
+  `ReleaseDeliveryTime` timestamp NULL DEFAULT NULL COMMENT 'release delivery time',
+  `DataChange_CreatedTime` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'create time',
+  `DataChange_LastTime` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'last modified time',
+  PRIMARY KEY (`Id`),
+  UNIQUE KEY `IX_UNIQUE_KEY` (`InstanceId`,`ConfigAppId`,`ConfigNamespaceName`),
+  KEY `IX_ReleaseKey` (`ReleaseKey`),
+  KEY `IX_DataChange_LastTime` (`DataChange_LastTime`),
+  KEY `IX_Valid_Namespace` (`ConfigAppId`,`ConfigClusterName`,`ConfigNamespaceName`,`DataChange_LastTime`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='instance config';
+
+-- Instance 表
+CREATE TABLE IF NOT EXISTS `Instance` (
+  `Id` int(10) unsigned NOT NULL AUTO_INCREMENT COMMENT 'primary key',
+  `AppId` varchar(64) NOT NULL DEFAULT 'default' COMMENT 'appid',
+  `ClusterName` varchar(32) NOT NULL DEFAULT 'default' COMMENT 'cluster name',
+  `DataCenter` varchar(64) NOT NULL DEFAULT 'default' COMMENT 'data center',
+  `Ip` varchar(32) NOT NULL DEFAULT '' COMMENT 'ip',
+  `DataChange_CreatedTime` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'create time',
+  `DataChange_LastTime` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'last modified time',
+  PRIMARY KEY (`Id`),
+  UNIQUE KEY `IX_UNIQUE_KEY` (`AppId`,`ClusterName`,`Ip`,`DataCenter`),
+  KEY `IX_IP` (`Ip`),
+  KEY `IX_DataChange_LastTime` (`DataChange_LastTime`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='usage instance';

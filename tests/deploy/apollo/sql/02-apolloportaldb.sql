@@ -234,25 +234,25 @@ CREATE TABLE IF NOT EXISTS `UserRole` (
   KEY `IX_DataChange_LastTime` (`DataChange_LastTime`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户和role的绑定表';
 
--- 初始化 ServerConfig
+-- Initialize ServerConfig
 INSERT INTO `ServerConfig` (`Key`, `Value`, `Comment`) VALUES
-('apollo.portal.envs', 'dev', '可支持的环境列表'),
-('organizations', '[{"orgId":"TEST","orgName":"测试部门"}]', '部门列表'),
-('superAdmin', 'apollo', 'Portal超级管理员'),
-('api.readTimeout', '10000', 'http接口read timeout'),
+('apollo.portal.envs', 'dev', 'Supported environments'),
+('organizations', '[{"orgId":"TEST","orgName":"Test Department"}]', 'Department list'),
+('superAdmin', 'apollo', 'Portal super admin'),
+('api.readTimeout', '10000', 'http api read timeout'),
 ('consumer.token.salt', 'someSalt', 'consumer token salt'),
-('admin.createPrivateNamespace.switch', 'true', '是否允许项目管理员创建私有namespace'),
-('configView.memberOnly.envs', 'dev', '只对项目成员显示配置信息的环境列表');
+('admin.createPrivateNamespace.switch', 'true', 'Allow project admin to create private namespace'),
+('configView.memberOnly.envs', 'dev', 'Environments that only show config to project members');
 
--- 初始化默认用户 (密码: admin)
+-- Initialize default user (password: admin)
 INSERT INTO `Users` (`Username`, `Password`, `UserDisplayName`, `Email`, `Enabled`) VALUES
-('apollo', '$2a$10$7r20uS.BQ9uBpf3Baj3uQOZvMVvB1RN3PYoKE94gtz2.WAOuiiwXS', 'Apollo管理员', 'apollo@admin.com', 1);
+('apollo', '$2a$10$7r20uS.BQ9uBpf3Baj3uQOZvMVvB1RN3PYoKE94gtz2.WAOuiiwXS', 'Apollo Admin', 'apollo@admin.com', 1);
 
--- 初始化用户权限
+-- Initialize user authority
 INSERT INTO `Authorities` (`Username`, `Authority`) VALUES
 ('apollo', 'ROLE_user');
 
--- Spring Session 表 (Portal 需要)
+-- Spring Session table (required by Portal)
 CREATE TABLE IF NOT EXISTS `SPRING_SESSION` (
   `PRIMARY_ID` char(36) NOT NULL,
   `SESSION_ID` char(36) NOT NULL,

@@ -3,14 +3,14 @@
 //! 支持从本地文件系统加载配置，支持 JSON/YAML/TOML 格式
 //! 支持监听文件变化并自动重新加载
 
+use anyhow::{anyhow, Result};
+use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use anyhow::{anyhow, Result};
-use serde::{Deserialize, Serialize};
 
-use super::source::{ConfigSource, ConfigChange, WatchHandle};
-use super::type_options::TypeOptions;
+use super::source::{ConfigChange, ConfigSource, ConfigValue, WatchHandle};
 
 /// 文件配置源的配置
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -61,7 +61,6 @@ impl From<FileSourceConfig> for FileSource {
 }
 
 impl FileSource {
-
     /// 根据 key 和扩展名构造文件路径
     fn get_file_path(&self, key: &str, ext: &str) -> PathBuf {
         self.base_path.join(format!("{}.{}", key, ext))
@@ -79,21 +78,22 @@ impl FileSource {
     }
 
     /// 根据扩展名解析配置
-    fn parse_config(content: &str, ext: &str) -> Result<TypeOptions> {
+    fn parse_config(content: &str, ext: &str) -> Result<JsonValue> {
         match ext {
-            "json" => TypeOptions::from_json(content),
-            "yaml" | "yml" => TypeOptions::from_yaml(content),
-            "toml" => TypeOptions::from_toml(content),
+            "json" => Ok(serde_json::from_str(content)?),
+            "yaml" | "yml" => Ok(serde_yaml::from_str(content)?),
+            "toml" => Ok(toml::from_str(content)?),
             _ => Err(anyhow!("不支持的文件格式: {}", ext)),
         }
     }
 }
 
 impl ConfigSource for FileSource {
-    fn load(&self, key: &str) -> Result<TypeOptions> {
+    fn load(&self, key: &str) -> Result<ConfigValue> {
         let (path, ext) = self.find_config_file(key)?;
         let content = std::fs::read_to_string(path)?;
-        Self::parse_config(&content, ext)
+        let value = Self::parse_config(&content, ext)?;
+        Ok(ConfigValue::new(value))
     }
 
     fn watch<F>(&self, key: &str, handler: F) -> Result<()>
@@ -111,8 +111,8 @@ impl ConfigSource for FileSource {
         // 启动监听线程
         let thread_handle = thread::spawn(move || {
             // 使用 notify crate 监听文件变化
-            use notify::{recommended_watcher, Event, RecursiveMode, Watcher};
             use crossbeam::channel::unbounded;
+            use notify::{recommended_watcher, Event, RecursiveMode, Watcher};
 
             let (event_tx, event_rx) = unbounded();
 
@@ -146,8 +146,8 @@ impl ConfigSource for FileSource {
                                 match std::fs::read_to_string(&file_path_clone) {
                                     Ok(content) => {
                                         match FileSource::parse_config(&content, &ext) {
-                                            Ok(config) => {
-                                                handler(ConfigChange::Updated(config));
+                                            Ok(value) => {
+                                                handler(ConfigChange::Updated(ConfigValue::new(value)));
                                             }
                                             Err(e) => {
                                                 handler(ConfigChange::Error(
@@ -208,11 +208,8 @@ mod tests {
         fs::write(
             &config_path,
             r#"{
-                "type": "TestService",
-                "options": {
-                    "host": "localhost",
-                    "port": 3306
-                }
+                "host": "localhost",
+                "port": 3306
             }"#,
         )?;
 
@@ -221,9 +218,8 @@ mod tests {
         });
         let config = source.load("test")?;
 
-        assert_eq!(config.type_name, "TestService");
-        assert_eq!(config.options["host"], "localhost");
-        assert_eq!(config.options["port"], 3306);
+        assert_eq!(config.as_value()["host"], "localhost");
+        assert_eq!(config.as_value()["port"], 3306);
 
         Ok(())
     }
@@ -236,10 +232,8 @@ mod tests {
         fs::write(
             &config_path,
             r#"
-type: TestService
-options:
-  host: localhost
-  port: 3306
+host: localhost
+port: 3306
 "#,
         )?;
 
@@ -248,8 +242,8 @@ options:
         });
         let config = source.load("test")?;
 
-        assert_eq!(config.type_name, "TestService");
-        assert_eq!(config.options["host"], "localhost");
+        assert_eq!(config.as_value()["host"], "localhost");
+        assert_eq!(config.as_value()["port"], 3306);
 
         Ok(())
     }
@@ -262,9 +256,6 @@ options:
         fs::write(
             &config_path,
             r#"
-type = "TestService"
-
-[options]
 host = "localhost"
 port = 3306
 "#,
@@ -275,8 +266,8 @@ port = 3306
         });
         let config = source.load("test")?;
 
-        assert_eq!(config.type_name, "TestService");
-        assert_eq!(config.options["host"], "localhost");
+        assert_eq!(config.as_value()["host"], "localhost");
+        assert_eq!(config.as_value()["port"], 3306);
 
         Ok(())
     }
@@ -299,13 +290,7 @@ port = 3306
         let config_path = temp_dir.path().join("watch_test.json");
 
         // 写入初始配置
-        fs::write(
-            &config_path,
-            r#"{
-                "type": "TestService",
-                "options": {"version": 1}
-            }"#,
-        )?;
+        fs::write(&config_path, r#"{"version": 1}"#)?;
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
@@ -324,13 +309,7 @@ port = 3306
         thread::sleep(Duration::from_millis(100));
 
         // 修改文件
-        fs::write(
-            &config_path,
-            r#"{
-                "type": "TestService",
-                "options": {"version": 2}
-            }"#,
-        )?;
+        fs::write(&config_path, r#"{"version": 2}"#)?;
 
         // 等待文件变更被检测
         thread::sleep(Duration::from_millis(500));
@@ -340,9 +319,9 @@ port = 3306
         assert!(!changes_vec.is_empty());
 
         // 检查是否有 Updated 事件
-        let has_update = changes_vec.iter().any(|c| {
-            matches!(c, ConfigChange::Updated(config) if config.options["version"] == 2)
-        });
+        let has_update = changes_vec.iter().any(
+            |c| matches!(c, ConfigChange::Updated(config) if config.as_value()["version"] == 2),
+        );
         assert!(has_update, "应该收到配置更新通知");
 
         Ok(())
@@ -354,13 +333,7 @@ port = 3306
         let config_path = temp_dir.path().join("delete_test.json");
 
         // 写入初始配置
-        fs::write(
-            &config_path,
-            r#"{
-                "type": "TestService",
-                "options": {}
-            }"#,
-        )?;
+        fs::write(&config_path, r#"{"name": "test"}"#)?;
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
@@ -395,13 +368,7 @@ port = 3306
         let temp_dir = TempDir::new()?;
         let config_path = temp_dir.path().join("cleanup_test.json");
 
-        fs::write(
-            &config_path,
-            r#"{
-                "type": "TestService",
-                "options": {}
-            }"#,
-        )?;
+        fs::write(&config_path, r#"{"name": "test"}"#)?;
 
         {
             let source = FileSource::new(FileSourceConfig {

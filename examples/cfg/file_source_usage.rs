@@ -19,8 +19,10 @@ fn main() -> anyhow::Result<()> {
     // 2. 加载配置
     println!("2. 加载数据库配置");
     let db_config = source.load("database")?;
-    println!("   配置类型: {}", db_config.type_name);
-    println!("   配置内容: {}\n", serde_json::to_string_pretty(&db_config.options)?);
+    println!(
+        "   配置内容: {}\n",
+        serde_json::to_string_pretty(db_config.as_value())?
+    );
 
     // 3. 使用 Arc<RwLock> 存储配置，支持并发读写
     let config = Arc::new(RwLock::new(db_config));
@@ -33,8 +35,10 @@ fn main() -> anyhow::Result<()> {
         match change {
             ConfigChange::Updated(new_config) => {
                 println!("   ✅ 检测到配置更新！");
-                println!("   新配置: {}",
-                    serde_json::to_string_pretty(&new_config.options).unwrap());
+                println!(
+                    "   新配置: {}",
+                    serde_json::to_string_pretty(new_config.as_value()).unwrap()
+                );
 
                 // 更新配置
                 *config_clone.write().unwrap() = new_config;
@@ -58,13 +62,13 @@ fn main() -> anyhow::Result<()> {
         thread::sleep(Duration::from_secs(5));
 
         let current_config = config.read().unwrap();
-        println!("   [{}] 当前配置类型: {}", i, current_config.type_name);
+        let value = current_config.as_value();
 
         // 读取具体配置值
-        if let Some(host) = current_config.options.get("host") {
-            println!("       数据库地址: {}", host);
+        if let Some(host) = value.get("host") {
+            println!("   [{}] 数据库地址: {}", i, host);
         }
-        if let Some(port) = current_config.options.get("port") {
+        if let Some(port) = value.get("port") {
             println!("       数据库端口: {}", port);
         }
     }
