@@ -2,10 +2,23 @@
 //!
 //! 演示如何使用 FileSource 加载和监听配置文件
 
+use rustx::cfg::serde_duration::{serde_as, HumanDur};
 use rustx::cfg::{ConfigChange, ConfigSource, FileSource, FileSourceConfig};
-use std::sync::{Arc, RwLock};
+use serde::{Deserialize, Serialize};
 use std::thread;
 use std::time::Duration;
+
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct DatabaseConfig {
+    host: String,
+    port: u16,
+    username: String,
+    database: String,
+    max_connections: u32,
+    #[serde_as(as = "HumanDur")]
+    timeout: Duration,
+}
 
 fn main() -> anyhow::Result<()> {
     println!("=== FileSource 使用示例 ===\n");
@@ -16,65 +29,36 @@ fn main() -> anyhow::Result<()> {
         base_path: "examples/cfg/configs".to_string(),
     });
 
-    // 2. 加载配置
+    // 2. 使用 load 加载配置并反序列化为结构体
     println!("2. 加载数据库配置");
-    let db_config = source.load("database")?;
-    println!(
-        "   配置内容: {}\n",
-        serde_json::to_string_pretty(db_config.as_value())?
-    );
+    let config = source.load("database")?;
+    let db_config: DatabaseConfig = config.into_type()?;
+    println!("   配置: {:?}\n", db_config);
 
-    // 3. 使用 Arc<RwLock> 存储配置，支持并发读写
-    let config = Arc::new(RwLock::new(db_config));
-    println!("3. 将配置存储到 Arc<RwLock> 中，支持并发访问\n");
-
-    // 4. 启动配置监听
-    println!("4. 启动配置监听");
-    let config_clone = config.clone();
-    source.watch("database", move |change| {
-        match change {
-            ConfigChange::Updated(new_config) => {
-                println!("   ✅ 检测到配置更新！");
-                println!(
-                    "   新配置: {}",
-                    serde_json::to_string_pretty(new_config.as_value()).unwrap()
-                );
-
-                // 更新配置
-                *config_clone.write().unwrap() = new_config;
-            }
-            ConfigChange::Deleted => {
-                println!("   ⚠️  配置文件已删除");
-            }
-            ConfigChange::Error(msg) => {
-                eprintln!("   ❌ 错误: {}", msg);
+    // 3. 使用 watch 监听配置变化
+    println!("3. 启动配置监听");
+    source.watch("database", move |change| match change {
+        ConfigChange::Updated(new_config) => {
+            println!("   ✅ 检测到配置更新！");
+            if let Ok(new_db_config) = new_config.as_type::<DatabaseConfig>() {
+                println!("   新配置: {:?}", new_db_config);
             }
         }
+        ConfigChange::Deleted => {
+            println!("   ⚠️  配置文件已删除");
+        }
+        ConfigChange::Error(msg) => {
+            eprintln!("   ❌ 错误: {}", msg);
+        }
     })?;
-    println!("   监听已启动\n");
 
-    // 5. 模拟应用运行，定期读取配置
-    println!("5. 应用运行中，定期读取配置...");
+    println!("   监听已启动");
     println!("   提示：你可以修改 examples/cfg/configs/database.json 文件来测试热更新");
     println!("   程序将运行 30 秒后自动退出\n");
 
-    for i in 1..=6 {
-        thread::sleep(Duration::from_secs(5));
+    // 4. 保持程序运行以测试配置热更新
+    thread::sleep(Duration::from_secs(30));
 
-        let current_config = config.read().unwrap();
-        let value = current_config.as_value();
-
-        // 读取具体配置值
-        if let Some(host) = value.get("host") {
-            println!("   [{}] 数据库地址: {}", i, host);
-        }
-        if let Some(port) = value.get("port") {
-            println!("       数据库端口: {}", port);
-        }
-    }
-
-    println!("\n程序即将退出，所有配置监听将自动停止");
-
-    // source drop 时，所有监听自动停止
+    println!("程序退出，配置监听自动停止");
     Ok(())
 }

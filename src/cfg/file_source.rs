@@ -113,6 +113,7 @@ impl ConfigSource for FileSource {
             // 使用 notify crate 监听文件变化
             use crossbeam::channel::unbounded;
             use notify::{recommended_watcher, Event, RecursiveMode, Watcher};
+            use std::time::Duration;
 
             let (event_tx, event_rx) = unbounded();
 
@@ -143,6 +144,26 @@ impl ConfigSource for FileSource {
                         if let Ok(event) = event {
                             // 文件被修改
                             if event.kind.is_modify() {
+                                // 防抖处理：等待 100ms，消耗这段时间内的所有修改事件
+                                thread::sleep(Duration::from_millis(100));
+
+                                // 清空队列中的重复修改事件，但保留删除事件
+                                let mut has_delete = false;
+                                while let Ok(evt) = event_rx.try_recv() {
+                                    if evt.kind.is_remove() {
+                                        has_delete = true;
+                                        break;
+                                    }
+                                    // 其他修改事件被丢弃
+                                }
+
+                                // 如果检测到删除事件，优先处理删除
+                                if has_delete {
+                                    handler(ConfigChange::Deleted);
+                                    continue;
+                                }
+
+                                // 只处理一次文件更新
                                 match std::fs::read_to_string(&file_path_clone) {
                                     Ok(content) => {
                                         match FileSource::parse_config(&content, &ext) {

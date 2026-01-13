@@ -1,104 +1,51 @@
-# Apollo 配置中心测试环境
-#
-# 启动方式:
-#   docker compose up -d
-#
-# 服务地址:
-#   - Config Service: http://localhost:8080
-#   - Admin Service: http://localhost:8090
-#   - Portal: http://localhost:8070 (用户名: apollo, 密码: admin)
-#
-# 停止方式:
-#   docker compose down -v
+version: '2.1'
 
 services:
-  # Apollo 数据库
-  apollo-db:
-    image: mysql:8.0
-    container_name: apollo-db
-    environment:
-      MYSQL_ROOT_PASSWORD: apollo
-      MYSQL_DATABASE: ApolloConfigDB
-      TZ: Asia/Shanghai
-    volumes:
-      - ./sql:/docker-entrypoint-initdb.d
-      - apollo-db-data:/var/lib/mysql
-    ports:
-      - "13306:3306"
-    healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-papollo" ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks:
-      - apollo-network
-
-  # Apollo Config Service - 配置服务
-  apollo-configservice:
-    image: apolloconfig/apollo-configservice:2.2.0
-    container_name: apollo-configservice
+  apollo-quick-start:
+    platform: linux/arm64
+    image: nobodyiam/apollo-quick-start
+    container_name: apollo-quick-start
     depends_on:
       apollo-db:
         condition: service_healthy
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://apollo-db:3306/ApolloConfigDB?characterEncoding=utf8&serverTimezone=Asia/Shanghai
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: apollo
-      EUREKA_INSTANCE_HOME_PAGE_URL: http://apollo-configservice:8080
     ports:
       - "8080:8080"
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8080/health" ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks:
-      - apollo-network
-
-  # Apollo Admin Service - 管理服务
-  apollo-adminservice:
-    image: apolloconfig/apollo-adminservice:2.2.0
-    container_name: apollo-adminservice
-    depends_on:
-      apollo-configservice:
-        condition: service_healthy
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://apollo-db:3306/ApolloConfigDB?characterEncoding=utf8&serverTimezone=Asia/Shanghai
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: apollo
-      EUREKA_INSTANCE_HOME_PAGE_URL: http://apollo-adminservice:8090
-    ports:
-      - "8090:8090"
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8090/health" ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks:
-      - apollo-network
-
-  # Apollo Portal - 管理界面
-  apollo-portal:
-    image: apolloconfig/apollo-portal:2.2.0
-    container_name: apollo-portal
-    depends_on:
-      apollo-adminservice:
-        condition: service_healthy
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://apollo-db:3306/ApolloPortalDB?characterEncoding=utf8&serverTimezone=Asia/Shanghai
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: apollo
-      APOLLO_PORTAL_ENVS: dev
-      DEV_META: http://apollo-configservice:8080
-    ports:
       - "8070:8070"
-    networks:
-      - apollo-network
+      - "8090:8090"
+    links:
+      - apollo-db
+    #environment:
+      #JAVA_OPTS: '-Xms100m -Xmx1000m -Xmn100m -Xss256k -XX:MetaspaceSize=10m -XX:MaxMetaspaceSize=250m'
+      #APOLLO_CONFIG_DB_USERNAME: 'root'
+      #APOLLO_CONFIG_DB_PASSWORD: 'apollo'
+      #APOLLO_PORTAL_DB_USERNAME: 'root'
+      #APOLLO_PORTAL_DB_PASSWORD: 'apollo'
 
-volumes:
-  apollo-db-data:
+  apollo-db:
+    platform: linux/arm64
+    image: mysql:8.0
+    container_name: apollo-db
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+      #MYSQL_ROOT_PASSWORD: 'apollo'
+    healthcheck:
+      test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 1s
+      retries: 10
+    depends_on:
+      - apollo-dbdata
+    ports:
+      - "13306:3306"
+    volumes:
+      - ./sql:/docker-entrypoint-initdb.d
+    volumes_from:
+      - apollo-dbdata
 
-
-networks:
-  apollo-network:
-    driver: bridge
+  apollo-dbdata:
+    platform: linux/arm64
+    image: alpine:latest
+    container_name: apollo-dbdata
+    volumes:
+      - /var/lib/mysql
