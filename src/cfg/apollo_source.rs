@@ -56,6 +56,11 @@ struct ApolloNotification {
 ///
 /// 支持从 Apollo 配置中心加载配置并监听变化
 ///
+/// # 监听行为说明
+/// - `watch` 方法仅监听配置**变化**，不会在启动时立即触发回调
+/// - 如需获取初始配置，应先调用 `load` 方法，再调用 `watch` 监听后续变化
+/// - 使用 Apollo 长轮询机制实现配置变更通知
+///
 /// # 示例
 /// ```no_run
 /// use rustx::cfg::{ConfigSource, ApolloSource, ApolloSourceConfig};
@@ -68,8 +73,13 @@ struct ApolloNotification {
 ///     cluster: "default".to_string(),
 /// }).unwrap();
 ///
-/// // 加载配置
+/// // 加载初始配置
 /// let config = source.load("database").unwrap();
+///
+/// // 监听后续变化
+/// source.watch("database", |change| {
+///     // 仅在配置发生变化时才会触发
+/// }).unwrap();
 /// ```
 pub struct ApolloSource {
     /// Apollo 服务器地址
@@ -174,6 +184,7 @@ impl ConfigSource for ApolloSource {
         // 启动监听线程
         let thread_handle = thread::spawn(move || {
             let mut notification_id = -1i64;
+            let mut is_first_notification = true; // 标记是否是首次收到通知
 
             loop {
                 // 检查停止信号（非阻塞）
@@ -204,6 +215,12 @@ impl ConfigSource for ApolloSource {
                                 let new_id = notif.notification_id;
                                 if new_id != notification_id {
                                     notification_id = new_id;
+
+                                    // 如果是首次收到通知，仅更新 notification_id，不触发回调
+                                    if is_first_notification {
+                                        is_first_notification = false;
+                                        continue; // 跳过本次回调触发，继续下一轮长轮询
+                                    }
 
                                     // 配置有更新，重新加载
                                     // 构建临时的 ApolloSource 来加载配置

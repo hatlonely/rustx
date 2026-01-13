@@ -26,6 +26,8 @@ fn main() -> anyhow::Result<()> {
     println!("   配置: {:?}\n", db_config);
 
     // 3. 使用 watch 监听配置变化
+    // 注意：watch 仅监听变化，不会立即触发回调
+    // 因此需要先 load 获取初始配置，再 watch 监听后续变化
     println!("3. 启动配置监听");
     source.watch("database", move |change| match change {
         ConfigChange::Updated(new_config) => {
@@ -43,7 +45,8 @@ fn main() -> anyhow::Result<()> {
     })?;
 
     println!("   监听已启动（使用 Apollo 长轮询机制）");
-    println!("   提示：你可以在 Apollo 控制台修改 database 配置来测试热更新");
+    println!("   提示：只有配置发生变化时才会触发回调");
+    println!("   你可以在 Apollo 控制台修改 database 配置来测试热更新");
     println!("   Apollo 控制台地址: http://localhost:8070");
     println!("   程序将运行 60 秒后自动退出\n");
 
