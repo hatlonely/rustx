@@ -13,6 +13,9 @@ pub mod type_options;
 // 重新导出公共 API
 pub use apollo_source::{ApolloSource, ApolloSourceConfig};
 pub use file_source::{FileSource, FileSourceConfig};
-pub use registry::{create_from_type_options, register, register_with_name};
+pub use registry::{
+    create_from_type_options, create_trait_from_type_options, register, register_trait,
+    register_with_name,
+};
 pub use source::{ConfigChange, ConfigSource, ConfigValue};
 pub use type_options::TypeOptions;

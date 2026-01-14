@@ -42,6 +42,10 @@ name = "cfg_apollo_source_usage"
 path = "examples/cfg/apollo_source_usage.rs"
 
 [[example]]
+name = "cfg_trait_usage"
+path = "examples/cfg/trait_usage.rs"
+
+[[example]]
 name = "kv_store_safe_hash_map_store"
 path = "examples/kv/store/safe_hash_map_store.rs"
 
