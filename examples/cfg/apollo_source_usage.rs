@@ -29,7 +29,7 @@ fn main() -> anyhow::Result<()> {
     // 注意：watch 仅监听变化，不会立即触发回调
     // 因此需要先 load 获取初始配置，再 watch 监听后续变化
     println!("3. 启动配置监听");
-    source.watch("database", move |change| match change {
+    source.watch("database", Box::new(move |change| match change {
         ConfigChange::Updated(new_config) => {
             println!("   ✅ 检测到配置更新！");
             if let Ok(new_db_config) = new_config.as_type::<TypeOptions>() {
@@ -42,7 +42,7 @@ fn main() -> anyhow::Result<()> {
         ConfigChange::Error(msg) => {
             eprintln!("   ❌ 错误: {}", msg);
         }
-    })?;
+    }))?;
 
     println!("   监听已启动（使用 Apollo 长轮询机制）");
     println!("   提示：只有配置发生变化时才会触发回调");

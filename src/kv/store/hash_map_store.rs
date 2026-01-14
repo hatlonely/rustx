@@ -1,8 +1,8 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::cell::UnsafeCell;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::core::{KvError, SetOptions, Store};
 
@@ -26,34 +26,28 @@ where
     V: Clone + Send + Sync,
 {
     map: UnsafeCell<HashMap<K, V>>,
-    _closed: AtomicBool,
 }
 
 unsafe impl<K, V> Send for HashMapStore<K, V>
 where
     K: Clone + Send + Sync + Eq + Hash,
     V: Clone + Send + Sync,
-{}
+{
+}
 
 unsafe impl<K, V> Sync for HashMapStore<K, V>
 where
     K: Clone + Send + Sync + Eq + Hash,
     V: Clone + Send + Sync,
-{}
+{
+}
 
 impl<K, V> HashMapStore<K, V>
 where
     K: Clone + Send + Sync + Eq + Hash,
     V: Clone + Send + Sync,
 {
-    pub fn new() -> Self {
-        Self {
-            map: UnsafeCell::new(HashMap::new()),
-            _closed: AtomicBool::new(false),
-        }
-    }
-
-    pub fn with_config(config: HashMapStoreConfig) -> Self {
+    pub fn new(config: HashMapStoreConfig) -> Self {
         let initial_map = match config.initial_capacity {
             Some(capacity) => HashMap::with_capacity(capacity),
             None => HashMap::new(),
@@ -61,7 +55,6 @@ where
 
         Self {
             map: UnsafeCell::new(initial_map),
-            _closed: AtomicBool::new(false),
         }
     }
 
@@ -80,10 +73,11 @@ where
     V: Clone + Send + Sync,
 {
     fn default() -> Self {
-        Self::new()
+        Self::new(HashMapStoreConfig::default())
     }
 }
 
+#[async_trait]
 impl<K, V> Store<K, V> for HashMapStore<K, V>
 where
     K: Clone + Send + Sync + Eq + Hash,
@@ -194,7 +188,6 @@ where
         unsafe {
             let map = self.get_map_mut();
             map.clear();
-            self._closed.store(true, Ordering::SeqCst);
             Ok(())
         }
     }
@@ -206,7 +199,17 @@ where
     V: Clone + Send + Sync + 'static,
 {
     fn from(config: HashMapStoreConfig) -> Self {
-        HashMapStore::with_config(config)
+        HashMapStore::new(config)
+    }
+}
+
+impl<K, V> From<Box<HashMapStore<K, V>>> for Box<dyn Store<K, V>>
+where
+    K: Clone + Send + Sync + Eq + Hash + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+    fn from(source: Box<HashMapStore<K, V>>) -> Self {
+        source as Box<dyn Store<K, V>>
     }
 }
 
@@ -216,7 +219,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_map_store_basic_operations() {
-        let store = HashMapStore::<String, String>::new();
+        let store = HashMapStore::<String, String>::new(HashMapStoreConfig::default());
 
         let key = "test_key".to_string();
         let value = "test_value".to_string();
@@ -235,7 +238,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_if_not_exist() {
-        let store = HashMapStore::<String, String>::new();
+        let store = HashMapStore::<String, String>::new(HashMapStoreConfig::default());
         let key = "test_key".to_string();
         let value1 = "value1".to_string();
         let value2 = "value2".to_string();
@@ -260,7 +263,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_batch_operations() {
-        let store = HashMapStore::<String, i32>::new();
+        let store = HashMapStore::<String, i32>::new(HashMapStoreConfig::default());
 
         let keys = vec!["key1".to_string(), "key2".to_string(), "key3".to_string()];
         let values = vec![1, 2, 3];
@@ -294,12 +297,12 @@ mod tests {
     #[test]
     fn test_map_store_with_config() {
         let default_config = HashMapStoreConfig::default();
-        let _store1 = HashMapStore::<String, i32>::with_config(default_config);
+        let _store1 = HashMapStore::<String, i32>::new(default_config);
 
         let config_with_capacity = HashMapStoreConfig {
             initial_capacity: Some(100),
         };
-        let _store2 = HashMapStore::<String, i32>::with_config(config_with_capacity);
+        let _store2 = HashMapStore::<String, i32>::new(config_with_capacity);
     }
 
     #[test]
@@ -321,7 +324,7 @@ mod tests {
             initial_capacity: Some(50),
         };
 
-        let store = HashMapStore::<String, String>::with_config(config.clone());
+        let store = HashMapStore::<String, String>::new(config.clone());
         let _store_ref = &store;
     }
 
@@ -331,8 +334,10 @@ mod tests {
         use std::time::Duration;
         use tokio::time::sleep;
 
-        let store = Arc::new(HashMapStore::<String, i32>::new());
-        
+        let store = Arc::new(HashMapStore::<String, i32>::new(
+            HashMapStoreConfig::default(),
+        ));
+
         // 阶段1：单线程初始化 - 写入所有数据
         println!("Phase 1: Single-threaded initialization");
         for i in 0..100 {
@@ -341,7 +346,7 @@ mod tests {
                 .await
                 .unwrap();
         }
-        
+
         // 批量设置一些额外数据
         let batch_keys: Vec<String> = (100..150).map(|i| format!("batch_key_{}", i)).collect();
         let batch_values: Vec<i32> = (100..150).map(|i| i * 20).collect();
@@ -350,9 +355,9 @@ mod tests {
             .await
             .unwrap();
         assert!(batch_results.iter().all(|r| r.is_ok()));
-        
+
         println!("Initialization completed. Starting concurrent read phase...");
-        
+
         // 阶段2：多线程并发只读访问
         // 重要：从此刻起，绝对不能再有任何写入操作！
         let num_readers = 8;
@@ -364,7 +369,7 @@ mod tests {
             let handle = tokio::spawn(async move {
                 let mut successful_reads = 0;
                 let mut total_reads = 0;
-                
+
                 for i in 0..reads_per_reader {
                     // 随机读取不同的键
                     let key_id = i % 150;
@@ -373,7 +378,7 @@ mod tests {
                     } else {
                         format!("batch_key_{}", key_id)
                     };
-                    
+
                     match store_clone.get(key).await {
                         Ok(value) => {
                             // 验证值的正确性
@@ -386,40 +391,45 @@ mod tests {
                             successful_reads += 1;
                         }
                         Err(KvError::KeyNotFound) => {
-                            panic!("Unexpected KeyNotFound for reader {}, key_id {}", reader_id, key_id);
+                            panic!(
+                                "Unexpected KeyNotFound for reader {}, key_id {}",
+                                reader_id, key_id
+                            );
                         }
                         Err(e) => {
                             panic!("Reader {} failed with error: {:?}", reader_id, e);
                         }
                     }
                     total_reads += 1;
-                    
+
                     // 添加小延迟模拟真实读取场景
                     if i % 20 == 0 {
                         sleep(Duration::from_micros(100)).await;
                     }
                 }
-                
-                println!("Reader {} completed: {}/{} successful reads", 
-                    reader_id, successful_reads, total_reads);
+
+                println!(
+                    "Reader {} completed: {}/{} successful reads",
+                    reader_id, successful_reads, total_reads
+                );
                 successful_reads
             });
             handles.push(handle);
         }
-        
+
         // 在读取期间，主线程也进行一些批量读取操作
         let main_thread_handle = {
             let store_clone = Arc::clone(&store);
             tokio::spawn(async move {
                 let batch_keys: Vec<String> = (0..50).map(|i| format!("key_{}", i)).collect();
-                
+
                 for _ in 0..10 {
                     let (values, errors) = store_clone.batch_get(batch_keys.clone()).await.unwrap();
-                    
+
                     // 验证所有值都能正确读取
                     assert_eq!(values.len(), 50);
                     assert!(errors.iter().all(|e| e.is_none()));
-                    
+
                     for (i, value_opt) in values.iter().enumerate() {
                         if let Some(value) = value_opt {
                             assert_eq!(*value, (i as i32) * 10);
@@ -427,38 +437,41 @@ mod tests {
                             panic!("Unexpected None value at index {}", i);
                         }
                     }
-                    
+
                     sleep(Duration::from_millis(1)).await;
                 }
-                
+
                 println!("Main thread batch reads completed");
                 50 // 返回处理的键数量
             })
         };
-        
+
         // 等待所有读取任务完成
         let mut total_reads = 0;
         for handle in handles {
             let reads = handle.await.unwrap();
             total_reads += reads;
         }
-        
+
         let main_reads = main_thread_handle.await.unwrap();
         total_reads += main_reads;
-        
-        println!("All concurrent reads completed. Total successful reads: {}", total_reads);
-        
+
+        println!(
+            "All concurrent reads completed. Total successful reads: {}",
+            total_reads
+        );
+
         // 最终验证：确保数据完整性没有被破坏
         for i in 0..100 {
             let value = store.get(format!("key_{}", i)).await.unwrap();
             assert_eq!(value, i * 10);
         }
-        
+
         for i in 100..150 {
             let value = store.get(format!("batch_key_{}", i)).await.unwrap();
             assert_eq!(value, i * 20);
         }
-        
+
         println!("Final integrity check passed!");
     }
 }

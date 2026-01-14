@@ -245,10 +245,10 @@ mod tests {
         let changes_clone = changes.clone();
 
         // 启动监听
-        source.watch("database", move |change| {
+        source.watch("database", Box::new(move |change| {
             println!("收到配置变更: {:?}", change);
             changes_clone.write().unwrap().push(change);
-        })?;
+        }))?;
 
         // 等待 watch 线程启动
         thread::sleep(Duration::from_secs(2));
@@ -331,11 +331,11 @@ mod tests {
         let errors: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
         let errors_clone = errors.clone();
 
-        source.watch("database", move |change| {
+        source.watch("database", Box::new(move |change| {
             if let ConfigChange::Error(msg) = change {
                 errors_clone.write().unwrap().push(msg);
             }
-        })?;
+        }))?;
 
         // 等待错误回调
         thread::sleep(Duration::from_secs(10));

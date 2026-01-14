@@ -122,9 +122,7 @@ pub trait ConfigSource: Send + Sync {
     ///     }
     /// }).unwrap();
     /// ```
-    fn watch<F>(&self, key: &str, handler: F) -> Result<()>
-    where
-        F: Fn(ConfigChange) + Send + 'static;
+    fn watch(&self, key: &str, handler: Box<dyn Fn(ConfigChange) + Send + 'static>) -> Result<()>;
 }
 
 /// 监听句柄（内部使用，不对外暴露）

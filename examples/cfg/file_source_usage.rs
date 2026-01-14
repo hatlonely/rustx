@@ -37,7 +37,7 @@ fn main() -> anyhow::Result<()> {
 
     // 3. 使用 watch 监听配置变化
     println!("3. 启动配置监听");
-    source.watch("database", move |change| match change {
+    source.watch("database", Box::new(move |change| match change {
         ConfigChange::Updated(new_config) => {
             println!("   ✅ 检测到配置更新！");
             if let Ok(new_db_config) = new_config.as_type::<DatabaseConfig>() {
@@ -50,7 +50,7 @@ fn main() -> anyhow::Result<()> {
         ConfigChange::Error(msg) => {
             eprintln!("   ❌ 错误: {}", msg);
         }
-    })?;
+    }))?;
 
     println!("   监听已启动");
     println!("   提示：你可以修改 examples/cfg/configs/database.json 文件来测试热更新");

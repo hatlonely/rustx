@@ -1,6 +1,7 @@
 use anyhow::Result;
 use rustx::cfg::serde_duration::{serde_as, HumanDur};
 use rustx::cfg::*;
+use rustx::impl_from;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -31,11 +32,7 @@ impl Service {
     }
 }
 
-impl From<ServiceConfig> for Service {
-    fn from(config: ServiceConfig) -> Self {
-        Service::new(config)
-    }
-}
+impl_from!(ServiceConfig => Service);
 
 fn main() -> Result<()> {
     register::<Service, ServiceConfig>("service")?;

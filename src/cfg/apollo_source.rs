@@ -9,6 +9,7 @@ use std::thread;
 use std::time::Duration;
 
 use super::source::{ConfigChange, ConfigSource, ConfigValue, WatchHandle};
+use crate::{impl_from, impl_box_from};
 
 /// Apollo 配置中心源的配置
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -115,11 +116,8 @@ impl ApolloSource {
     }
 }
 
-impl From<ApolloSourceConfig> for ApolloSource {
-    fn from(config: ApolloSourceConfig) -> Self {
-        ApolloSource::new(config).expect("创建 ApolloSource 失败")
-    }
-}
+impl_from!(ApolloSourceConfig => ApolloSource, expect: "创建 ApolloSource 失败");
+impl_box_from!(ApolloSource => dyn ConfigSource);
 
 impl ApolloSource {
     /// 从 Apollo 获取指定命名空间的完整配置
@@ -164,10 +162,7 @@ impl ConfigSource for ApolloSource {
         Ok(ConfigValue::new(value))
     }
 
-    fn watch<F>(&self, key: &str, handler: F) -> Result<()>
-    where
-        F: Fn(ConfigChange) + Send + 'static,
-    {
+    fn watch(&self, key: &str, handler: Box<dyn Fn(ConfigChange) + Send + 'static>) -> Result<()> {
         // 创建停止信号通道
         let (stop_tx, stop_rx) = crossbeam::channel::unbounded();
 

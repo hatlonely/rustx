@@ -1,5 +1,6 @@
 use anyhow::Result;
 use rustx::cfg::*;
+use rustx::{impl_from, impl_box_from};
 use serde::{Deserialize, Serialize};
 
 // 定义 Service trait
@@ -33,11 +34,7 @@ impl ServiceV1 {
     }
 }
 
-impl From<ServiceV1Config> for ServiceV1 {
-    fn from(config: ServiceV1Config) -> Self {
-        ServiceV1::new(config)
-    }
-}
+impl_from!(ServiceV1Config => ServiceV1);
 
 impl Service for ServiceV1 {
     fn serve(&self) {
@@ -82,11 +79,7 @@ impl ServiceV2 {
     }
 }
 
-impl From<ServiceV2Config> for ServiceV2 {
-    fn from(config: ServiceV2Config) -> Self {
-        ServiceV2::new(config)
-    }
-}
+impl_from!(ServiceV2Config => ServiceV2);
 
 impl Service for ServiceV2 {
     fn serve(&self) {
@@ -110,18 +103,10 @@ impl Service for ServiceV2 {
 }
 
 // 为 Box<ServiceV1> 实现到 Box<dyn Service> 的转换
-impl From<Box<ServiceV1>> for Box<dyn Service> {
-    fn from(service: Box<ServiceV1>) -> Self {
-        service as Box<dyn Service>
-    }
-}
+impl_box_from!(ServiceV1 => dyn Service);
 
 // 为 Box<ServiceV2> 实现到 Box<dyn Service> 的转换
-impl From<Box<ServiceV2>> for Box<dyn Service> {
-    fn from(service: Box<ServiceV2>) -> Self {
-        service as Box<dyn Service>
-    }
-}
+impl_box_from!(ServiceV2 => dyn Service);
 
 fn main() -> Result<()> {
     println!("=== Trait-based 配置注册示例 ===\n");

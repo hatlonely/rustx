@@ -23,6 +23,7 @@ tokio = { version = "1.0", features = ["full"] }
 notify = "6.0"
 crossbeam = "0.8"
 reqwest = { version = "0.11", features = ["blocking", "json"] }
+async-trait = "0.1"
 
 [dev-dependencies]
 tempfile = "3.0"
@@ -44,6 +45,10 @@ path = "examples/cfg/apollo_source_usage.rs"
 [[example]]
 name = "cfg_register_trait_usage"
 path = "examples/cfg/register_trait_usage.rs"
+
+[[example]]
+name = "cfg_config_source_trait_usage"
+path = "examples/cfg/config_source_trait_usage.rs"
 
 [[example]]
 name = "kv_store_safe_hash_map_store"

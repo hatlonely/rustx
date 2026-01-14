@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use super::source::{ConfigChange, ConfigSource, ConfigValue, WatchHandle};
+use crate::{impl_from, impl_box_from};
 
 /// 文件配置源的配置
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -54,11 +55,8 @@ impl FileSource {
     }
 }
 
-impl From<FileSourceConfig> for FileSource {
-    fn from(config: FileSourceConfig) -> Self {
-        FileSource::new(config)
-    }
-}
+impl_from!(FileSourceConfig => FileSource);
+impl_box_from!(FileSource => dyn ConfigSource);
 
 impl FileSource {
     /// 根据 key 和扩展名构造文件路径
@@ -96,10 +94,7 @@ impl ConfigSource for FileSource {
         Ok(ConfigValue::new(value))
     }
 
-    fn watch<F>(&self, key: &str, handler: F) -> Result<()>
-    where
-        F: Fn(ConfigChange) + Send + 'static,
-    {
+    fn watch(&self, key: &str, handler: Box<dyn Fn(ConfigChange) + Send + 'static>) -> Result<()> {
         // 查找存在的配置文件
         let (file_path, ext) = self.find_config_file(key)?;
         let ext = ext.to_string();
@@ -322,9 +317,9 @@ port = 3306
         let changes_clone = changes.clone();
 
         // 启动监听
-        source.watch("watch_test", move |change| {
+        source.watch("watch_test", Box::new(move |change| {
             changes_clone.write().unwrap().push(change);
-        })?;
+        }))?;
 
         // 等待监听器启动
         thread::sleep(Duration::from_millis(100));
@@ -363,9 +358,9 @@ port = 3306
         let changes = Arc::new(RwLock::new(Vec::new()));
         let changes_clone = changes.clone();
 
-        source.watch("delete_test", move |change| {
+        source.watch("delete_test", Box::new(move |change| {
             changes_clone.write().unwrap().push(change);
-        })?;
+        }))?;
 
         thread::sleep(Duration::from_millis(100));
 
@@ -395,7 +390,7 @@ port = 3306
             let source = FileSource::new(FileSourceConfig {
                 base_path: temp_dir.path().to_string_lossy().to_string(),
             });
-            source.watch("cleanup_test", |_| {})?;
+            source.watch("cleanup_test", Box::new(|_| {}))?;
 
             // source 在这里 drop
         }

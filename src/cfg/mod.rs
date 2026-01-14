@@ -5,6 +5,7 @@
 // 模块声明
 pub mod apollo_source;
 pub mod file_source;
+pub mod macros;
 pub mod registry;
 pub mod serde_duration;
 pub mod source;

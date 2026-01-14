@@ -1,4 +1,4 @@
-use std::future::Future;
+use async_trait::async_trait;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -41,29 +41,30 @@ impl SetOptions {
 }
 
 /// 核心 KV 存储 trait（严格对应 Golang Store[K, V] interface）
+#[async_trait]
 pub trait Store<K, V>: Send + Sync
 where
     K: Clone + Send + Sync,
     V: Clone + Send + Sync,
 {
     /// 设置键值对，WithIfNotExist 时键存在则返回 ErrConditionFailed
-    fn set(&self, key: K, value: V, options: SetOptions) -> impl Future<Output = Result<(), KvError>> + Send;
+    async fn set(&self, key: K, value: V, options: SetOptions) -> Result<(), KvError>;
     
     /// 获取键对应的值，键不存在时返回 ErrKeyNotFound
-    fn get(&self, key: K) -> impl Future<Output = Result<V, KvError>> + Send;
+    async fn get(&self, key: K) -> Result<V, KvError>;
     
     /// 删除键，键不存在时也返回成功
-    fn del(&self, key: K) -> impl Future<Output = Result<(), KvError>> + Send;
+    async fn del(&self, key: K) -> Result<(), KvError>;
     
     /// 批量设置，返回每个键的操作结果
-    fn batch_set(&self, keys: Vec<K>, vals: Vec<V>, options: SetOptions) -> impl Future<Output = Result<Vec<Result<(), KvError>>, KvError>> + Send;
+    async fn batch_set(&self, keys: Vec<K>, vals: Vec<V>, options: SetOptions) -> Result<Vec<Result<(), KvError>>, KvError>;
     
     /// 批量获取，返回每个键的值和错误
-    fn batch_get(&self, keys: Vec<K>) -> impl Future<Output = Result<(Vec<Option<V>>, Vec<Option<KvError>>), KvError>> + Send;
+    async fn batch_get(&self, keys: Vec<K>) -> Result<(Vec<Option<V>>, Vec<Option<KvError>>), KvError>;
     
     /// 批量删除，返回每个键的操作结果
-    fn batch_del(&self, keys: Vec<K>) -> impl Future<Output = Result<Vec<Result<(), KvError>>, KvError>> + Send;
+    async fn batch_del(&self, keys: Vec<K>) -> Result<Vec<Result<(), KvError>>, KvError>;
     
     /// 关闭存储
-    fn close(&self) -> impl Future<Output = Result<(), KvError>> + Send;
+    async fn close(&self) -> Result<(), KvError>;
 }

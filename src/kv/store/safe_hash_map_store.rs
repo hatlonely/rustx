@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -36,14 +37,7 @@ where
     V: Clone + Send + Sync,
 {
     /// 创建新的 MapStore 实例（对应 Golang NewMapStoreWithOptions）
-    pub fn new() -> Self {
-        Self {
-            map: RwLock::new(HashMap::new()),
-        }
-    }
-
-    /// 使用配置创建新的 MapStore 实例
-    pub fn with_config(config: SafeHashMapStoreConfig) -> Self {
+    pub fn new(config: SafeHashMapStoreConfig) -> Self {
         let initial_map = match config.initial_capacity {
             Some(capacity) => HashMap::with_capacity(capacity),
             None => HashMap::new(),
@@ -61,10 +55,11 @@ where
     V: Clone + Send + Sync,
 {
     fn default() -> Self {
-        Self::new()
+        Self::new(SafeHashMapStoreConfig::default())
     }
 }
 
+#[async_trait]
 impl<K, V> Store<K, V> for SafeHashMapStore<K, V>
 where
     K: Clone + Send + Sync + Eq + Hash,
@@ -177,7 +172,17 @@ where
     V: Clone + Send + Sync + 'static,
 {
     fn from(config: SafeHashMapStoreConfig) -> Self {
-        SafeHashMapStore::with_config(config)
+        SafeHashMapStore::new(config)
+    }
+}
+
+impl<K, V> From<Box<SafeHashMapStore<K, V>>> for Box<dyn Store<K, V>>
+where
+    K: Clone + Send + Sync + Eq + Hash + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+    fn from(source: Box<SafeHashMapStore<K, V>>) -> Self {
+        source as Box<dyn Store<K, V>>
     }
 }
 
@@ -187,7 +192,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_map_store_basic_operations() {
-        let store = SafeHashMapStore::<String, String>::new();
+        let store = SafeHashMapStore::<String, String>::new(SafeHashMapStoreConfig::default());
 
         // 测试 Set 和 Get
         let key = "test_key".to_string();
@@ -208,7 +213,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_if_not_exist() {
-        let store = SafeHashMapStore::<String, String>::new();
+        let store = SafeHashMapStore::<String, String>::new(SafeHashMapStoreConfig::default());
         let key = "test_key".to_string();
         let value1 = "value1".to_string();
         let value2 = "value2".to_string();
@@ -236,7 +241,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_batch_operations() {
-        let store = SafeHashMapStore::<String, i32>::new();
+        let store = SafeHashMapStore::<String, i32>::new(SafeHashMapStoreConfig::default());
 
         let keys = vec!["key1".to_string(), "key2".to_string(), "key3".to_string()];
         let values = vec![1, 2, 3];
@@ -275,13 +280,13 @@ mod tests {
     fn test_map_store_with_config() {
         // 测试默认配置
         let default_config = SafeHashMapStoreConfig::default();
-        let _store1 = SafeHashMapStore::<String, i32>::with_config(default_config);
+        let _store1 = SafeHashMapStore::<String, i32>::new(default_config);
 
         // 测试带初始容量的配置
         let config_with_capacity = SafeHashMapStoreConfig {
             initial_capacity: Some(100),
         };
-        let _store2 = SafeHashMapStore::<String, i32>::with_config(config_with_capacity);
+        let _store2 = SafeHashMapStore::<String, i32>::new(config_with_capacity);
 
         // 两个 store 都应该能正常工作
         // 这里只是验证能够创建，实际的容量测试在内部 HashMap 中
@@ -310,8 +315,8 @@ mod tests {
             initial_capacity: Some(50),
         };
 
-        // 测试 with_config - 现在只需要这个方法
-        let store = SafeHashMapStore::<String, String>::with_config(config.clone());
+        // 测试 new 方法
+        let store = SafeHashMapStore::<String, String>::new(config.clone());
 
         // 验证 store 被正确创建
         // 这里我们不直接测试 async 方法，只验证创建成功
@@ -324,7 +329,9 @@ mod tests {
         use std::time::Duration;
         use tokio::time::sleep;
 
-        let store = Arc::new(SafeHashMapStore::<String, i32>::new());
+        let store = Arc::new(SafeHashMapStore::<String, i32>::new(
+            SafeHashMapStoreConfig::default(),
+        ));
         let num_readers = 5;
         let num_writers = 3;
         let num_operations = 100;
