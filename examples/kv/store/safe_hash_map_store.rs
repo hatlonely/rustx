@@ -5,7 +5,7 @@ use rustx::kv::store::{SafeHashMapStore, SafeHashMapStoreConfig, SetOptions, Sto
 #[tokio::main]
 async fn main() -> Result<()> {
     // 零耦合自动注册！线程安全 SafeHashMapStore 完全不需要知道配置系统的存在
-    register::<SafeHashMapStore<String, String>, SafeHashMapStoreConfig>()?;
+    register_auto::<SafeHashMapStore<String, String>, SafeHashMapStoreConfig>()?;
 
     println!("=== 线程安全 SafeHashMapStore JSON 配置示例 ===");
 

@@ -132,7 +132,7 @@ mod tests {
     #[test]
     fn test_zero_coupling_json_workflow() -> Result<()> {
         // 注册类型 - 零耦合，不需要业务类型知道配置系统
-        register::<WebServer, WebServerConfig>()?;
+        register_auto::<WebServer, WebServerConfig>()?;
 
         // 获取实际的类型名
         let type_name = generate_auto_type_name::<WebServer>();
@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn test_zero_coupling_yaml_workflow() -> Result<()> {
-        register::<WebServer, WebServerConfig>()?;
+        register_auto::<WebServer, WebServerConfig>()?;
 
         let type_name = generate_auto_type_name::<WebServer>();
         let yaml_config = format!(r#"
@@ -231,9 +231,9 @@ options:
     #[test]
     fn test_multiple_service_types() -> Result<()> {
         // 注册多个不同的服务类型
-        register::<WebServer, WebServerConfig>()?;
-        register::<Database, DatabaseConfig>()?;
-        register::<Cache, CacheConfig>()?;
+        register_auto::<WebServer, WebServerConfig>()?;
+        register_auto::<Database, DatabaseConfig>()?;
+        register_auto::<Cache, CacheConfig>()?;
 
         let web_type_name = generate_auto_type_name::<WebServer>();
         let db_type_name = generate_auto_type_name::<Database>();
@@ -314,7 +314,7 @@ options:
     #[test]
     fn test_manual_type_name_registration() -> Result<()> {
         // 使用自定义类型名注册
-        register_with_name::<WebServer, WebServerConfig>("custom_web_server")?;
+        register::<WebServer, WebServerConfig>("custom_web_server")?;
 
         let config = r#"
         {
@@ -348,7 +348,7 @@ options:
 
     #[test]
     fn test_format_conversion_workflow() -> Result<()> {
-        register::<Cache, CacheConfig>()?;
+        register_auto::<Cache, CacheConfig>()?;
 
         let cache_type_name = generate_auto_type_name::<Cache>();
 
@@ -403,7 +403,7 @@ options:
         assert!(error_msg.contains("NonExistentService"));
 
         // 测试配置格式错误
-        register::<Database, DatabaseConfig>()?;
+        register_auto::<Database, DatabaseConfig>()?;
 
         let db_type_name = generate_auto_type_name::<Database>();
         let malformed_config = format!(r#"
@@ -424,7 +424,7 @@ options:
 
     #[test]
     fn test_optional_fields_and_defaults() -> Result<()> {
-        register::<Database, DatabaseConfig>()?;
+        register_auto::<Database, DatabaseConfig>()?;
 
         let db_type_name = generate_auto_type_name::<Database>();
 

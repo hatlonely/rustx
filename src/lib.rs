@@ -19,12 +19,9 @@ pub mod cfg;
 pub mod kv;
 
 // 重新导出主要的公共 API
-pub use cfg::{TypeOptions, register_with_name, register, create_from_type_options};
+pub use cfg::{create_from_type_options, register, register_auto, TypeOptions};
 
 pub use kv::{
-    Store, KvError, SetOptions,
-    Serializer, SerializerError,
-    Parser, ChangeType, ParserError,
-    Loader, KvStream, LoaderError, Listener,
-    LOAD_STRATEGY_REPLACE, LOAD_STRATEGY_INPLACE,
+    ChangeType, KvError, KvStream, Listener, Loader, LoaderError, Parser, ParserError, Serializer,
+    SerializerError, SetOptions, Store, LOAD_STRATEGY_INPLACE, LOAD_STRATEGY_REPLACE,
 };

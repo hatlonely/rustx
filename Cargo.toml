@@ -30,8 +30,8 @@ mockito = "1.2"
 
 # Examples configuration
 [[example]]
-name = "cfg_usage"
-path = "examples/cfg/usage.rs"
+name = "cfg_register_usage"
+path = "examples/cfg/register_usage.rs"
 
 [[example]]
 name = "cfg_file_source_usage"
@@ -40,6 +40,10 @@ path = "examples/cfg/file_source_usage.rs"
 [[example]]
 name = "cfg_apollo_source_usage"
 path = "examples/cfg/apollo_source_usage.rs"
+
+[[example]]
+name = "cfg_register_trait_usage"
+path = "examples/cfg/register_trait_usage.rs"
 
 [[example]]
 name = "kv_store_safe_hash_map_store"

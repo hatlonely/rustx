@@ -5,7 +5,7 @@ use rustx::kv::store::{HashMapStore, HashMapStoreConfig, SetOptions, Store};
 #[tokio::main]
 async fn main() -> Result<()> {
     // 零耦合自动注册！无锁 HashMapStore 完全不需要知道配置系统的存在
-    register::<HashMapStore<String, String>, HashMapStoreConfig>()?;
+    register_auto::<HashMapStore<String, String>, HashMapStoreConfig>()?;
 
     println!("=== 无锁 HashMapStore JSON 配置示例 ===");
 

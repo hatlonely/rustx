@@ -38,7 +38,7 @@ impl From<ServiceConfig> for Service {
 }
 
 fn main() -> Result<()> {
-    register_with_name::<Service, ServiceConfig>("service")?;
+    register::<Service, ServiceConfig>("service")?;
 
     // JSON 配置示例
     let json_config = r#"
