@@ -1,0 +1,6 @@
+{
+    "type": "HashMapStore",
+    "options": {
+        "initial_capacity": 500
+    }
+}
