@@ -196,10 +196,11 @@ let cache: Box<dyn Cache> = create_trait_from_type_options(&TypeOptions {
 为了保持代码的一致性和可维护性，建议采用以下设计模式：
 
 **核心原则：**
+- 每个类放到单独的文件中，并且文件名以类名的小写下划线格式命名
 - 每个类只提供一个 `new` 方法，参数为对应的 `Config` 结构体
 - **Config 命名规范**：严格遵循"原类名 + Config"后缀，如 `Database` -> `DatabaseConfig`、`RedisCache` -> `RedisCacheConfig`
 - **注册名称规范**：注册的类型名称必须严格与类名保持一致，如 `register::<Database, DatabaseConfig>("Database")`
-- 配置结构体使用 `serde::Deserialize` 进行自动反序列化  
+- 配置结构体使用 `serde::Deserialize` 进行自动反序列化
 - 通过 `register`/`register_trait` 注册到类型系统
 - 使用 `create_from_type_options`/`create_trait_from_type_options` 进行动态创建
 

@@ -17,6 +17,7 @@
 
 pub mod cfg;
 pub mod kv;
+pub mod proto;
 
 // 重新导出主要的公共 API
 pub use cfg::{create_from_type_options, register, register_auto, TypeOptions};

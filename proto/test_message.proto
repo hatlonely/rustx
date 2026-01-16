@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package test;
+
+// 测试用户消息
+message User {
+  string name = 1;
+  uint32 age = 2;
+  bool active = 3;
+}
+
+// 测试产品消息
+message Product {
+  uint64 id = 1;
+  string name = 2;
+  double price = 3;
+  repeated string tags = 4;
+}
+
+// 测试嵌套消息
+message Order {
+  uint64 id = 1;
+  User user = 2;
+  repeated Product products = 3;
+  double total_amount = 4;
+  int64 created_at = 5;
+}
