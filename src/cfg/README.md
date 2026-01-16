@@ -1,308 +1,148 @@
-# CFG - 零耦合配置管理库
+# cfg 模块 - 零耦合配置管理
 
-一个现代化的 Rust 配置管理库，提供零耦合的类型注册机制，支持多种配置格式和动态对象创建。
+提供统一的配置管理系统，支持多种配置来源和类型注册。
 
-## ✨ 特性
+## 快速开始
 
-- 🚀 **零耦合设计** - 业务类型无需知道配置系统存在
-- 📝 **多格式支持** - JSON、YAML、TOML配置文件解析
-- ⏱️ **Duration人性化格式** - 支持`30s`、`1m`、`1h30m`等格式
-- 🔧 **简单易用** - 最小化的接口，最大化的功能
-- 🔒 **线程安全** - 全局类型注册表支持并发访问
-- ⚡ **零成本抽象** - 编译时优化的性能
-- 🎯 **自动类型名** - 直接使用 Rust 原生类型名作为标识
-
-## 🚀 快速开始
-
-### 添加依赖
-
-```toml
-[dependencies]
-rustx = { path = "path/to/rustx" }
-serde = { version = "1.0", features = ["derive"] }
-anyhow = "1.0"
-```
-
-### 零耦合示例
+### 1. 基本使用 - 文件配置源
 
 ```rust
-use rustx::cfg::*;
-use rustx::cfg::duration::{serde_as, HumanDur};
-use serde::{Deserialize, Serialize};
-use anyhow::Result;
-use std::time::Duration;
+use rustx::cfg::{ConfigSource, FileSource, FileSourceConfig, ConfigValue};
+use serde::Deserialize;
 
-// 1. 定义配置结构
-#[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct ServiceConfig {
-    name: String,
+#[derive(Deserialize)]
+struct DatabaseConfig {
     host: String,
     port: u16,
-    #[serde_as(as = "HumanDur")]
-    timeout: Duration,
-    max_connections: Option<u32>,
 }
 
-// 2. 定义服务类型（完全不需要知道配置系统）
-#[derive(Debug)]
-struct Service {
-    config: ServiceConfig,
-}
+// 创建文件配置源
+let source = FileSource::new(FileSourceConfig {
+    base_path: "config".to_string(),
+});
 
-impl Service {
-    fn new(config: ServiceConfig) -> Self {
-        println!("创建服务: {} @ {}:{}", 
-                config.name, config.host, config.port);
-        Self { config }
-    }
-}
-
-// 3. 实现 From trait（使用标准库，符合 Rust 惯用法）
-impl From<ServiceConfig> for Service {
-    fn from(config: ServiceConfig) -> Self {
-        Service::new(config)
-    }
-}
-
-// 4. 使用配置
-#[tokio::main]
-async fn main() -> Result<()> {
-    // 零耦合注册 - 自动生成类型名
-    register_auto_with_type::<Service, ServiceConfig>()?;
-    
-    // 获取实际的类型名（用于配置文件）
-    let type_name = std::any::type_name::<Service>();
-    
-    // 从JSON配置创建服务
-    let json_config = format!(r#"
-    {{
-        "type": "{}",
-        "options": {{
-            "name": "web-api",
-            "host": "localhost", 
-            "port": 8080,
-            "timeout": "30s",
-            "max_connections": 100
-        }}
-    }}"#, type_name);
-    
-    let type_options = TypeOptions::from_json(&json_config)?;
-    let service_obj = create_from_type_options(&type_options)?;
-    
-    // 类型转换
-    if let Some(service) = service_obj.downcast_ref::<Service>() {
-        println!("✅ 服务创建成功");
-    }
-    
-    Ok(())
-}
+// 加载配置文件 config/database.json
+let config: DatabaseConfig = source.load("database")?.into_type()?;
+println!("数据库: {}:{}", config.host, config.port);
 ```
 
-## 🏗️ 核心概念
-
-### 1. From Trait
-
-使用 Rust 标准库的 From trait 进行类型转换：
+### 2. 监听配置变化
 
 ```rust
-pub trait From<T> {
-    fn from(value: T) -> Self;
-}
-```
+use rustx::cfg::{ConfigChange, ConfigSource, FileSource, FileSourceConfig};
 
-这符合 Rust 惯用法，并自动获得 Into trait 的实现。
+let source = FileSource::new(FileSourceConfig {
+    base_path: "config".to_string(),
+});
 
-### 2. TypeOptions 结构
-
-配置的通用格式：
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TypeOptions {
-    #[serde(rename = "type")]
-    pub type_name: String,
-    pub options: JsonValue,
-}
-```
-
-### 3. 零耦合注册
-
-两种注册方式：
-
-```rust
-// 自动生成类型名
-register_auto_with_type::<MyService, MyConfig>()?;
-
-// 手动指定类型名
-register_auto::<MyService, MyConfig>("custom_name")?;
-```
-
-## 📝 支持的配置格式
-
-### JSON
-
-```rust
-let json_config = r#"
-{
-    "type": "my_crate::MyService",
-    "options": {
-        "name": "web-api",
-        "timeout": "30s"
-    }
-}"#;
-
-let type_options = TypeOptions::from_json(json_config)?;
-```
-
-### YAML
-
-```rust
-let yaml_config = r#"
-type: "my_crate::MyService"
-options:
-  name: "web-api"
-  timeout: "30s"
-"#;
-
-let type_options = TypeOptions::from_yaml(yaml_config)?;
-```
-
-### TOML
-
-```rust
-let toml_config = r#"
-type = "my_crate::MyService"
-
-[options]
-name = "web-api"
-timeout = "30s"
-"#;
-
-let type_options = TypeOptions::from_toml(toml_config)?;
-```
-
-## ⏱️ Duration 人性化格式
-
-cfg库内置支持Duration的人性化格式：
-
-```rust
-use rustx::cfg::duration::{serde_as, HumanDur};
-
-#[serde_as]
-#[derive(Deserialize)]
-struct Config {
-    #[serde_as(as = "HumanDur")]
-    timeout: Duration,
-    #[serde_as(as = "HumanDur")]
-    retry_interval: Duration,
-}
-```
-
-支持的格式：
-- `3s` - 3秒
-- `100ms` - 100毫秒
-- `2m` - 2分钟
-- `1h` - 1小时
-- `1h30m45s` - 1小时30分钟45秒
-- `2d` - 2天
-
-## 🔧 实际使用案例
-
-### MapStore 示例
-
-```rust
-use rustx::kv::store::{MapStore, MapStoreConfig};
-use rustx::cfg::*;
-
-// MapStore 完全不知道配置系统的存在
-// 只需要实现 From trait
-impl<K, V> From<MapStoreConfig> for MapStore<K, V>
-where
-    K: Clone + Send + Sync + Eq + Hash + 'static,
-    V: Clone + Send + Sync + 'static,
-{
-    fn from(config: MapStoreConfig) -> Self {
-        MapStore::with_config(config)  // 复用已有方法
-    }
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    // 注册不同类型的 MapStore
-    register_auto_with_type::<MapStore<String, String>, MapStoreConfig>()?;
-    register_auto_with_type::<MapStore<String, i32>, MapStoreConfig>()?;
-    
-    let config = r#"
-    {
-        "type": "rustx::kv::store::memory::MapStore<alloc::string::String, alloc::string::String>",
-        "options": {
-            "initial_capacity": 1000,
-            "enable_stats": true
+source.watch("database", Box::new(|change| {
+    match change {
+        ConfigChange::Updated(value) => {
+            println!("配置已更新: {:?}", value.as_value());
         }
-    }"#;
-    
-    let type_options = TypeOptions::from_json(config)?;
-    let store_obj = create_from_type_options(&type_options)?;
-    
-    if let Some(store) = store_obj.downcast_ref::<MapStore<String, String>>() {
-        store.set("key".to_string(), "value".to_string(), Default::default()).await?;
-        let value = store.get("key".to_string()).await?;
-        println!("Value: {}", value);
+        ConfigChange::Deleted => println!("配置已删除"),
+        ConfigChange::Error(msg) => eprintln!("错误: {}", msg),
     }
-    
-    Ok(())
-}
+}))?;
 ```
 
-## 📚 API 参考
+### 3. Apollo 配置中心
 
-### 核心函数
+```rust
+use rustx::cfg::{ApolloSource, ApolloSourceConfig, ConfigSource};
 
-- `register_auto_with_type::<T, Config>()` - 自动注册类型（推荐）
-- `register_auto::<T, Config>(type_name)` - 指定类型名注册
-- `create_from_type_options(type_options)` - 从配置创建对象
+let source = ApolloSource::new(ApolloSourceConfig {
+    server_url: "http://localhost:8080".to_string(),
+    app_id: "my-app".to_string(),
+    namespace: "application".to_string(),
+    cluster: "default".to_string(),
+})?;
 
-### TypeOptions 方法
+let config: DatabaseConfig = source.load("database")?.into_type()?;
+```
 
-- `TypeOptions::from_json(json_str)` - 从JSON字符串解析
-- `TypeOptions::from_yaml(yaml_str)` - 从YAML字符串解析
-- `TypeOptions::from_toml(toml_str)` - 从TOML字符串解析
-- `type_options.to_json()` - 转换为JSON字符串
-- `type_options.to_yaml()` - 转换为YAML字符串
-- `type_options.to_toml()` - 转换为TOML字符串
+### 4. 类型注册系统
 
-### Duration 工具函数
+```rust
+use rustx::cfg::{register_auto, TypeOptions, create_from_type_options};
+use serde::Deserialize;
 
-- `parse_duration(s)` - 解析时间字符串
-- `format_duration(duration)` - 格式化Duration为字符串
+#[derive(Deserialize)]
+struct RedisConfig {
+    host: String,
+    port: u16,
+}
 
-## 🎯 设计原则
+struct RedisClient {
+    host: String,
+    port: u16,
+}
 
-1. **零耦合** - 业务代码不依赖配置系统
-2. **标准化** - 使用 Rust 标准库的 `From` trait，符合惯用法
-3. **自动化** - 自动生成类型名，减少手工配置
-4. **类型安全** - 编译时类型检查
-5. **性能优先** - 零成本抽象
+impl From<RedisConfig> for RedisClient {
+    fn from(config: RedisConfig) -> Self {
+        Self { host: config.host, port: config.port }
+    }
+}
 
-## 🤝 与其他库的对比
+// 自动注册类型
+register_auto::<RedisClient, RedisConfig>()?;
 
-| 特性 | CFG | config-rs | figment |
-|-----|-----|-----------|---------|
-| 零耦合 | ✅ | ❌ | ❌ |
-| 类型注册 | ✅ | ❌ | ❌ |
-| 动态创建 | ✅ | ❌ | ❌ |
-| 多格式 | ✅ | ✅ | ✅ |
-| Duration格式 | ✅ | ❌ | ❌ |
+// 从配置创建实例
+let type_options = TypeOptions {
+    type_name: "RedisClient".to_string(),
+    options: serde_json::json!({
+        "host": "localhost",
+        "port": 6379
+    }),
+};
 
-## 📄 许可证
+let client = create_from_type_options(&type_options)?
+    .downcast::<RedisClient>()
+    .unwrap();
+```
 
-根据项目的许可证条款分发。
+### 5. Trait 注册
 
-## 🤝 贡献
+```rust
+use rustx::cfg::{register_trait, TypeOptions, create_trait_from_type_options};
 
-欢迎提交Issues和Pull Requests！
+trait Storage: Send + Sync {
+    fn save(&self, data: &str);
+}
 
----
+struct FileStorage;
+struct RedisStorage;
 
-更多示例请参考 `examples/` 目录。
+impl Storage for FileStorage {
+    fn save(&self, data: &str) { /* 保存到文件 */ }
+}
+
+impl Storage for RedisStorage {
+    fn save(&self, data: &str) { /* 保存到 Redis */ }
+}
+
+// 注册 trait 实现
+register_trait::<FileStorage, dyn Storage, serde_json::Value>("file")?;
+register_trait::<RedisStorage, dyn Storage, serde_json::Value>("redis")?;
+
+// 动态创建实例
+let storage: Box<dyn Storage> = create_trait_from_type_options(&TypeOptions {
+    type_name: "redis".to_string(),
+    options: serde_json::json!({}),
+})?;
+```
+
+## 支持格式
+
+- **JSON**: `.json`
+- **YAML**: `.yaml`, `.yml`  
+- **TOML**: `.toml`
+
+## 核心特性
+
+- **零耦合**: 配置源和业务逻辑完全解耦
+- **统一接口**: 所有配置源实现相同的 `ConfigSource` trait
+- **热重载**: 支持配置文件和 Apollo 配置的实时监听
+- **类型安全**: 强类型配置解析，编译期检查
+- **自动发现**: 支持多种文件格式的自动检测
+- **工厂模式**: 基于类型名称和配置的动态实例创建
