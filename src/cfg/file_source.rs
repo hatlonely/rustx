@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::source::{ConfigChange, ConfigSource, ConfigValue};
-use crate::{impl_from, impl_box_from};
+use crate::{impl_box_from, impl_from};
 
 /// 文件配置源的配置
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -74,7 +74,8 @@ impl FileSource {
     /// 根据扩展名解析配置
     fn parse_config(content: &str, ext: &str) -> Result<JsonValue> {
         match ext {
-            "json" => Ok(serde_json::from_str(content)?),
+            "json" => Ok(json5::from_str(content)?),
+            "json5" => Ok(json5::from_str(content)?),
             "yaml" | "yml" => Ok(serde_yaml::from_str(content)?),
             "toml" => Ok(toml::from_str(content)?),
             _ => Err(anyhow!("不支持的文件格式: {}", ext)),
@@ -90,7 +91,11 @@ impl ConfigSource for FileSource {
         Ok(ConfigValue::new(value))
     }
 
-    fn watch(&self, key: &str, handler: Box<dyn Fn(ConfigChange) + Send + Sync + 'static>) -> Result<()> {
+    fn watch(
+        &self,
+        key: &str,
+        handler: Box<dyn Fn(ConfigChange) + Send + Sync + 'static>,
+    ) -> Result<()> {
         let (file_path, ext) = self.find_config_file(key)?;
         let ext = ext.to_string();
         let file_path_clone = file_path.clone();
@@ -102,12 +107,10 @@ impl ConfigSource for FileSource {
             match event {
                 crate::fs::FileEvent::Modified(_) | crate::fs::FileEvent::Created(_) => {
                     match std::fs::read_to_string(&file_path_clone) {
-                        Ok(content) => {
-                            match Self::parse_config(&content, &ext) {
-                                Ok(value) => handler(ConfigChange::Updated(ConfigValue::new(value))),
-                                Err(e) => handler(ConfigChange::Error(format!("解析配置失败: {}", e))),
-                            }
-                        }
+                        Ok(content) => match Self::parse_config(&content, &ext) {
+                            Ok(value) => handler(ConfigChange::Updated(ConfigValue::new(value))),
+                            Err(e) => handler(ConfigChange::Error(format!("解析配置失败: {}", e))),
+                        },
                         Err(e) => {
                             // 如果读取失败（文件可能被删除），发送删除事件
                             if !file_path_clone.exists() {
@@ -130,12 +133,12 @@ impl ConfigSource for FileSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::fs;
-    use std::thread;
     use std::sync::{Arc, RwLock};
+    use std::thread;
     use std::time::Duration;
     use tempfile::TempDir;
-    use serial_test::serial;
 
     #[test]
     fn test_file_source_load_json() -> Result<()> {
@@ -240,9 +243,12 @@ port = 3306
         let changes_clone = changes.clone();
 
         // 启动监听
-        source.watch("watch_test", Box::new(move |change| {
-            changes_clone.write().unwrap().push(change);
-        }))?;
+        source.watch(
+            "watch_test",
+            Box::new(move |change| {
+                changes_clone.write().unwrap().push(change);
+            }),
+        )?;
 
         // 等待监听器启动
         thread::sleep(Duration::from_millis(200));
@@ -282,9 +288,12 @@ port = 3306
         let changes = Arc::new(RwLock::new(Vec::new()));
         let changes_clone = changes.clone();
 
-        source.watch("delete_test", Box::new(move |change| {
-            changes_clone.write().unwrap().push(change);
-        }))?;
+        source.watch(
+            "delete_test",
+            Box::new(move |change| {
+                changes_clone.write().unwrap().push(change);
+            }),
+        )?;
 
         thread::sleep(Duration::from_millis(100));
 

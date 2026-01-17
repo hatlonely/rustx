@@ -14,9 +14,10 @@ pub struct TypeOptions {
 
 /// TypeOptions 的便利函数 - 从各种格式创建和导出
 impl TypeOptions {
-    /// 从 JSON 字符串创建 TypeOptions
+    /// 从 JSON 字符串创建 TypeOptions（支持 JSON5 格式）
     pub fn from_json(json_str: &str) -> Result<Self> {
-        Ok(serde_json::from_str(json_str)?)
+        // 使用 json5 解析（支持注释、尾随逗号、未引用的键等）
+        Ok(json5::from_str(json_str)?)
     }
 
     /// 从 YAML 字符串创建 TypeOptions
@@ -367,6 +368,32 @@ mod tests {
         let deserialized: TypeOptions = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized.type_name, type_options.type_name);
         assert_eq!(deserialized.options, type_options.options);
+    }
+
+    #[test]
+    fn test_json5_support() -> Result<()> {
+        // JSON5 支持注释
+        let json5_str = r#"
+        {
+            // 这是一个注释
+            "type": "json5_test",
+            "options": {
+                /* 多行注释 */
+                name: "json5_service",  // 未引用的键
+                port: 8080,             // 尾随逗号
+                enabled: true,
+            }
+        }"#;
+
+        let type_options = TypeOptions::from_json(json5_str)?;
+        assert_eq!(type_options.type_name, "json5_test");
+
+        let options = &type_options.options;
+        assert_eq!(options["name"], "json5_service");
+        assert_eq!(options["port"], 8080);
+        assert_eq!(options["enabled"], true);
+
+        Ok(())
     }
 
     #[test]
