@@ -30,3 +30,7 @@ pub use kv::{
     ChangeType, KvError, KvStream, Listener, Loader, LoaderError, Parser, ParserError, Serializer,
     SerializerError, SetOptions, Store, LOAD_STRATEGY_INPLACE, LOAD_STRATEGY_REPLACE,
 };
+
+// 重新导出 ParseValue trait 和派生宏
+pub use kv::parser::ParseValue;
+pub use rustx_macros::ParseValue as ParseValueMacro;

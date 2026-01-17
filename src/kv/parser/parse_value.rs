@@ -7,6 +7,44 @@ use super::ParserError;
 ///
 /// 提供从字符串到目标类型的转换能力。
 /// 对于基本类型使用 FromStr trait，对于复杂类型使用 JSON 反序列化。
+///
+/// # 为自定义类型实现
+///
+/// ## 使用派生宏（推荐）
+///
+/// 对于实现了 `Deserialize` 的自定义结构体，可以直接使用派生宏：
+///
+/// ```ignore
+/// use serde::Deserialize;
+/// use rustx_macros::ParseValue;
+///
+/// #[derive(Debug, Deserialize, ParseValue)]
+/// struct User {
+///     name: String,
+///     age: i32,
+/// }
+/// ```
+///
+/// ## 手动实现
+///
+/// 也可以手动实现：
+///
+/// ```ignore
+/// use serde::Deserialize;
+///
+/// #[derive(Debug, Deserialize)]
+/// struct User {
+///     name: String,
+///     age: i32,
+/// }
+///
+/// impl ParseValue for User {
+///     fn parse_value(s: &str) -> Result<Self, ParserError> {
+///         serde_json::from_str(s)
+///             .map_err(|e| ParserError::ParseFailed(format!("failed to parse User: {}", e)))
+///     }
+/// }
+/// ```
 pub trait ParseValue: Sized {
     /// 从字符串解析值
     ///

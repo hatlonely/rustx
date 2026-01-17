@@ -1796,6 +1796,7 @@ dependencies = [
  "redis",
  "reqwest",
  "rmp-serde",
+ "rustx-macros",
  "serde",
  "serde_json",
  "serde_with",
@@ -1805,6 +1806,15 @@ dependencies = [
  "thiserror",
  "tokio",
  "toml",
+]
+
+[[package]]
+name = "rustx-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

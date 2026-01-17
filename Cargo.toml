@@ -34,6 +34,7 @@ log = "0.4"
 dunce = "1.0"
 rayon = "1.10"
 num_cpus = "1.16"
+rustx-macros = { path = "macros" }
 
 [build-dependencies]
 prost-build = "0.12"

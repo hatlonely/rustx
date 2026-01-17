@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use std::marker::PhantomData;
 
-use super::{Parser, ParserError, ChangeType, ParseValue};
+use super::{ChangeType, ParseValue, Parser, ParserError};
 
 /// LineParser 配置（遵循 cfg/README.md 最佳实践）
 ///
@@ -257,18 +257,13 @@ mod tests {
     #[test]
     fn test_parse_with_custom_struct() {
         use serde::Deserialize;
+        use rustx_macros::ParseValue;
 
-        // 为自定义结构体实现 ParseValue trait
-        #[derive(Debug, Deserialize, PartialEq)]
+        // 使用派生宏自动实现 ParseValue trait
+        #[derive(Debug, Deserialize, PartialEq, ParseValue)]
         struct User {
             name: String,
             age: i32,
-        }
-
-        impl ParseValue for User {
-            fn parse_value(s: &str) -> Result<Self, ParserError> {
-                serde_json::from_str(s).map_err(|e| ParserError::ParseFailed(format!("failed to parse User: {}", e)))
-            }
         }
 
         let config = LineParserConfig {
@@ -281,6 +276,12 @@ mod tests {
 
         assert_eq!(ct, ChangeType::Add);
         assert_eq!(key, "user123");
-        assert_eq!(value, User { name: "Alice".to_string(), age: 30 });
+        assert_eq!(
+            value,
+            User {
+                name: "Alice".to_string(),
+                age: 30
+            }
+        );
     }
 }
