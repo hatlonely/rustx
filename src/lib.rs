@@ -6,6 +6,7 @@
 //!
 //! - **cfg**: 配置管理模块（对应 Golang cfg 包）
 //! - **kv**: 键值存储抽象模块（对应 Golang kv 包）
+//! - **fs**: 文件系统操作模块（对应 Golang fs 包）
 //!
 //! ## 设计理念
 //!
@@ -16,11 +17,14 @@
 //! - ⚡ **高性能**: 异步操作支持
 
 pub mod cfg;
+pub mod fs;
 pub mod kv;
 pub mod proto;
 
 // 重新导出主要的公共 API
 pub use cfg::{create_from_type_options, register, register_auto, TypeOptions};
+
+pub use fs::{FileEvent, FileWatcher};
 
 pub use kv::{
     ChangeType, KvError, KvStream, Listener, Loader, LoaderError, Parser, ParserError, Serializer,

@@ -29,6 +29,10 @@ bson = "2.8"
 prost = "0.12"
 bytes = "1.0"
 redis = { version = "0.24", features = ["aio", "tokio-comp", "connection-manager"] }
+log = "0.4"
+dunce = "1.0"
+rayon = "1.10"
+num_cpus = "1.16"
 
 [build-dependencies]
 prost-build = "0.12"
@@ -81,3 +85,7 @@ path = "examples/kv/serializer/serializer_usage.rs"
 [[example]]
 name = "kv_serializer_protobuf_usage"
 path = "examples/kv/serializer/protobuf_usage.rs"
+
+[[example]]
+name = "fs_file_watcher_usage"
+path = "examples/fs/file_watcher_usage.rs"

@@ -1,5 +1,3 @@
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -14,22 +12,52 @@ pub const LOAD_STRATEGY_INPLACE: &str = "inplace";
 pub enum LoaderError {
     #[error("Load failed: {0}")]
     LoadFailed(String),
+
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Parser error: {0}")]
+    Parser(String),
+
+    #[error("Watcher error: {0}")]
+    Watcher(String),
+
+    #[error("Channel error: {0}")]
+    Channel(String),
+
+    #[error("Listener already registered")]
+    ListenerAlreadyRegistered,
+
+    #[error("Listener not found")]
+    ListenerNotFound,
 }
 
 /// KV 数据流：用于遍历 KV 数据（对应 Golang KVStream[K, V] interface）
-pub trait KvStream<K, V>: Send + Sync {
+pub trait KvStream<K, V>: Send + Sync
+where
+    K: Clone + Send + Sync,
+    V: Clone + Send + Sync,
+{
     /// 遍历数据流中的每个元素（对应 Golang Each 方法）
-    fn each(&self, callback: Box<dyn Fn(ChangeType, K, V) -> Result<(), LoaderError> + Send + Sync>) -> Pin<Box<dyn Future<Output = Result<(), LoaderError>> + Send + '_>>;
+    fn each(
+        &self,
+        callback: &dyn Fn(ChangeType, K, V) -> Result<(), LoaderError>,
+    ) -> Result<(), LoaderError>;
 }
 
 /// 监听器：处理 KV 数据变更的回调（对应 Golang Listener[K, V]）
-pub type Listener<K, V> = Box<dyn Fn(Arc<dyn KvStream<K, V>>) -> Pin<Box<dyn Future<Output = Result<(), LoaderError>> + Send>> + Send + Sync>;
+pub type Listener<K, V> =
+    Box<dyn Fn(&dyn KvStream<K, V>) -> Result<(), LoaderError> + Send + Sync>;
 
 /// 核心加载器 trait（对应 Golang Loader[K, V] interface）
-pub trait Loader<K, V>: Send + Sync {
+pub trait Loader<K, V>: Send + Sync
+where
+    K: Clone + Send + Sync,
+    V: Clone + Send + Sync,
+{
     /// 注册数据变更监听器（对应 Golang OnChange）
-    fn on_change(&mut self, listener: Listener<K, V>) -> Pin<Box<dyn Future<Output = Result<(), LoaderError>> + Send + '_>>;
-    
+    fn on_change(&mut self, listener: Listener<K, V>) -> Result<(), LoaderError>;
+
     /// 关闭加载器（对应 Golang Close）
-    fn close(&mut self) -> Pin<Box<dyn Future<Output = Result<(), LoaderError>> + Send + '_>>;
+    fn close(&mut self) -> Result<(), LoaderError>;
 }
