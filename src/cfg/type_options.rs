@@ -45,10 +45,289 @@ impl TypeOptions {
     }
 }
 
+// 手动实现 PartialEq，因为 JsonValue 没有实现 PartialEq
+impl PartialEq for TypeOptions {
+    fn eq(&self, other: &Self) -> bool {
+        // 1. 比较 type_name
+        if self.type_name != other.type_name {
+            return false;
+        }
+
+        // 2. 比较 options (JsonValue)
+        json_value_equals(&self.options, &other.options)
+    }
+}
+
+/// 辅助函数：比较两个 JsonValue 是否相等
+///
+/// 这个函数实现了深度相等比较，处理各种 JSON 类型：
+/// - Null
+/// - Bool
+/// - Number (整数、浮点数)
+/// - String
+/// - Array (递归比较元素)
+/// - Object (递归比较所有键值对)
+fn json_value_equals(a: &JsonValue, b: &JsonValue) -> bool {
+    match (a, b) {
+        // Null 比较
+        (JsonValue::Null, JsonValue::Null) => true,
+
+        // Bool 比较
+        (JsonValue::Bool(a_bool), JsonValue::Bool(b_bool)) => a_bool == b_bool,
+
+        // Number 比较
+        // 需要处理 i64, u64, f64 的情况
+        (JsonValue::Number(a_num), JsonValue::Number(b_num)) => {
+            // 尝试作为 i64 比较
+            if let (Some(a_i64), Some(b_i64)) = (a_num.as_i64(), b_num.as_i64()) {
+                a_i64 == b_i64
+            }
+            // 尝试作为 u64 比较
+            else if let (Some(a_u64), Some(b_u64)) = (a_num.as_u64(), b_num.as_u64()) {
+                a_u64 == b_u64
+            }
+            // 作为 f64 比较（需要处理 NaN）
+            else {
+                match (a_num.as_f64(), b_num.as_f64()) {
+                    (Some(a_f64), Some(b_f64)) => {
+                        // 浮点数比较，处理 NaN
+                        if a_f64.is_nan() && b_f64.is_nan() {
+                            true
+                        } else {
+                            a_f64 == b_f64
+                        }
+                    }
+                    _ => false,
+                }
+            }
+        }
+
+        // String 比较
+        (JsonValue::String(a_str), JsonValue::String(b_str)) => a_str == b_str,
+
+        // Array 比较（递归）
+        (JsonValue::Array(a_arr), JsonValue::Array(b_arr)) => {
+            if a_arr.len() != b_arr.len() {
+                return false;
+            }
+            a_arr.iter()
+                .zip(b_arr.iter())
+                .all(|(a_item, b_item)| json_value_equals(a_item, b_item))
+        }
+
+        // Object 比较（递归比较所有键值对）
+        (JsonValue::Object(a_obj), JsonValue::Object(b_obj)) => {
+            if a_obj.len() != b_obj.len() {
+                return false;
+            }
+
+            // 检查 a 的所有 key 都在 b 中且值相等
+            for (key, a_value) in a_obj.iter() {
+                match b_obj.get(key) {
+                    Some(b_value) => {
+                        if !json_value_equals(a_value, b_value) {
+                            return false;
+                        }
+                    }
+                    None => return false,
+                }
+            }
+
+            true
+        }
+
+        // 类型不匹配
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::Value as JsonValue;
+
+    #[test]
+    fn test_type_options_partial_eq_same() {
+        let opts1 = TypeOptions {
+            type_name: "TestType".to_string(),
+            options: serde_json::json!({
+                "key1": "value1",
+                "key2": 42,
+                "key3": true,
+                "key4": null
+            }),
+        };
+
+        let opts2 = TypeOptions {
+            type_name: "TestType".to_string(),
+            options: serde_json::json!({
+                "key1": "value1",
+                "key2": 42,
+                "key3": true,
+                "key4": null
+            }),
+        };
+
+        assert_eq!(opts1, opts2);
+    }
+
+    #[test]
+    fn test_type_options_partial_eq_different_type_name() {
+        let opts1 = TypeOptions {
+            type_name: "TypeA".to_string(),
+            options: serde_json::json!({ "key": "value" }),
+        };
+
+        let opts2 = TypeOptions {
+            type_name: "TypeB".to_string(),
+            options: serde_json::json!({ "key": "value" }),
+        };
+
+        assert_ne!(opts1, opts2);
+    }
+
+    #[test]
+    fn test_type_options_partial_eq_different_options() {
+        let opts1 = TypeOptions {
+            type_name: "TestType".to_string(),
+            options: serde_json::json!({ "key": "value1" }),
+        };
+
+        let opts2 = TypeOptions {
+            type_name: "TestType".to_string(),
+            options: serde_json::json!({ "key": "value2" }),
+        };
+
+        assert_ne!(opts1, opts2);
+    }
+
+    #[test]
+    fn test_json_value_equals_null() {
+        assert!(json_value_equals(&JsonValue::Null, &JsonValue::Null));
+        assert!(!json_value_equals(&JsonValue::Null, &JsonValue::Bool(false)));
+    }
+
+    #[test]
+    fn test_json_value_equals_bool() {
+        assert!(json_value_equals(&JsonValue::Bool(true), &JsonValue::Bool(true)));
+        assert!(json_value_equals(&JsonValue::Bool(false), &JsonValue::Bool(false)));
+        assert!(!json_value_equals(&JsonValue::Bool(true), &JsonValue::Bool(false)));
+    }
+
+    #[test]
+    fn test_json_value_equals_number() {
+        // 整数比较
+        assert!(json_value_equals(
+            &JsonValue::Number(42.into()),
+            &JsonValue::Number(42.into())
+        ));
+        assert!(!json_value_equals(
+            &JsonValue::Number(42.into()),
+            &JsonValue::Number(43.into())
+        ));
+
+        // 浮点数比较（通过字符串解析）
+        let float1: JsonValue = serde_json::from_str("3.14").unwrap();
+        let float2: JsonValue = serde_json::from_str("3.14").unwrap();
+        let float3: JsonValue = serde_json::from_str("3.141").unwrap();
+
+        assert!(json_value_equals(&float1, &float2));
+        assert!(!json_value_equals(&float1, &float3));
+
+        // 注意：JSON 标准不支持 NaN 和 Infinity
+        // 所以我们不需要测试这些情况
+    }
+
+    #[test]
+    fn test_json_value_equals_string() {
+        assert!(json_value_equals(
+            &JsonValue::String("hello".to_string()),
+            &JsonValue::String("hello".to_string())
+        ));
+        assert!(!json_value_equals(
+            &JsonValue::String("hello".to_string()),
+            &JsonValue::String("world".to_string())
+        ));
+    }
+
+    #[test]
+    fn test_json_value_equals_array() {
+        let arr1 = serde_json::json!([1, 2, 3]);
+        let arr2 = serde_json::json!([1, 2, 3]);
+        let arr3 = serde_json::json!([1, 2, 4]);
+
+        assert!(json_value_equals(&arr1, &arr2));
+        assert!(!json_value_equals(&arr1, &arr3));
+
+        // 不同长度
+        let arr4 = serde_json::json!([1, 2]);
+        assert!(!json_value_equals(&arr1, &arr4));
+    }
+
+    #[test]
+    fn test_json_value_equals_object() {
+        let obj1 = serde_json::json!({
+            "name": "Alice",
+            "age": 30,
+            "active": true
+        });
+
+        let obj2 = serde_json::json!({
+            "name": "Alice",
+            "age": 30,
+            "active": true
+        });
+
+        let obj3 = serde_json::json!({
+            "name": "Alice",
+            "age": 31,  // 不同的值
+            "active": true
+        });
+
+        assert!(json_value_equals(&obj1, &obj2));
+        assert!(!json_value_equals(&obj1, &obj3));
+
+        // 缺少 key
+        let obj4 = serde_json::json!({
+            "name": "Alice",
+            "age": 30
+        });
+        assert!(!json_value_equals(&obj1, &obj4));
+    }
+
+    #[test]
+    fn test_json_value_equals_nested() {
+        let nested1 = serde_json::json!({
+            "user": {
+                "name": "Bob",
+                "tags": ["developer", "rust"]
+            },
+            "settings": {
+                "theme": "dark"
+            }
+        });
+
+        let nested2 = serde_json::json!({
+            "user": {
+                "name": "Bob",
+                "tags": ["developer", "rust"]
+            },
+            "settings": {
+                "theme": "dark"
+            }
+        });
+
+        assert!(json_value_equals(&nested1, &nested2));
+    }
+
+    #[test]
+    fn test_json_value_equals_type_mismatch() {
+        // 不同类型应该不相等
+        assert!(!json_value_equals(&JsonValue::Null, &JsonValue::Bool(false)));
+        assert!(!json_value_equals(&JsonValue::Bool(true), &JsonValue::String("true".to_string())));
+        assert!(!json_value_equals(&JsonValue::Number(42.into()), &JsonValue::String("42".to_string())));
+        assert!(!json_value_equals(&JsonValue::Array(vec![]), &JsonValue::Object(serde_json::Map::new())));
+    }
 
     #[test]
     fn test_type_options_creation() {

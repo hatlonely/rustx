@@ -3,7 +3,10 @@ use std::hash::Hash;
 
 use crate::cfg::register_trait;
 
-use super::{HashMapStore, HashMapStoreConfig, SafeHashMapStore, SafeHashMapStoreConfig, Store};
+use super::{
+    HashMapStore, HashMapStoreConfig, RedisStore, RedisStoreConfig, SafeHashMapStore,
+    SafeHashMapStoreConfig, Store,
+};
 
 /// 注册所有 Store 实现到 cfg 注册表
 ///
@@ -44,6 +47,64 @@ where
     register_trait::<SafeHashMapStore<K, V>, dyn Store<K, V>, SafeHashMapStoreConfig>(
         "SafeHashMapStore",
     )?;
+    Ok(())
+}
+
+/// 注册 Redis Store 到 cfg 注册表
+///
+/// 为指定的 K, V 类型组合注册 RedisStore 实现。
+///
+/// # 类型参数
+/// - `K`: 键类型，需要满足 `Clone + Send + Sync + 'static`
+/// - `V`: 值类型，需要满足 `Clone + Send + Sync + 'static`
+///
+/// # 注册的类型
+/// - `RedisStore` - 基于 Redis 的分布式存储实现
+///
+/// # 前置条件
+/// 在调用此函数之前，必须先注册键和值类型的序列化器：
+/// ```ignore
+/// use rustx::kv::serializer::register_serde_serializers;
+/// use rustx::kv::store::register_redis_stores;
+///
+/// // 先注册序列化器
+/// register_serde_serializers::<String>()?;
+/// register_serde_serializers::<MyValue>()?;
+///
+/// // 再注册 Store
+/// register_redis_stores::<String, MyValue>()?;
+/// ```
+///
+/// # 示例
+/// ```ignore
+/// use rustx::kv::store::{register_redis_stores, Store};
+/// use rustx::cfg::{TypeOptions, create_trait_from_type_options};
+///
+/// // 注册序列化器
+/// register_serde_serializers::<String>()?;
+///
+/// // 注册 Store
+/// register_redis_stores::<String, String>()?;
+///
+/// // 通过配置创建实例
+/// let opts = TypeOptions::from_json(r#"{
+///     "type": "RedisStore",
+///     "options": {
+///         "endpoint": "localhost:6379",
+///         "password": "secret",
+///         "db": 0,
+///         "default_ttl": 3600
+///     }
+/// }"#)?;
+///
+/// let store: Box<dyn Store<String, String>> = create_trait_from_type_options(&opts)?;
+/// ```
+pub fn register_redis_stores<K, V>() -> Result<()>
+where
+    K: Clone + Send + Sync + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+    register_trait::<RedisStore<K, V>, dyn Store<K, V>, RedisStoreConfig>("RedisStore")?;
     Ok(())
 }
 

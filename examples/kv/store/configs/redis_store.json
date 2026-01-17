@@ -1,0 +1,9 @@
+{
+    "type": "RedisStore",
+    "options": {
+        "endpoint": "localhost:6379",
+        "password": "",
+        "db": 0,
+        "default_ttl": 3600
+    }
+}

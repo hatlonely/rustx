@@ -28,6 +28,7 @@ rmp-serde = "1.1"
 bson = "2.8"
 prost = "0.12"
 bytes = "1.0"
+redis = { version = "0.24", features = ["aio", "tokio-comp", "connection-manager"] }
 
 [build-dependencies]
 prost-build = "0.12"
@@ -68,6 +69,10 @@ path = "examples/kv/store/hash_map_store.rs"
 [[example]]
 name = "kv_store_store_usage"
 path = "examples/kv/store/store_usage.rs"
+
+[[example]]
+name = "kv_store_redis_store"
+path = "examples/kv/store/redis_store.rs"
 
 [[example]]
 name = "kv_serializer_registry_usage"

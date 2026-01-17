@@ -2,7 +2,8 @@ use anyhow::Result;
 use rustx::cfg::{
     create_trait_from_type_options, ConfigSource, FileSource, FileSourceConfig, TypeOptions,
 };
-use rustx::kv::store::{register_hash_stores, SetOptions, Store};
+use rustx::kv::serializer::register_serde_serializers;
+use rustx::kv::store::{register_hash_stores, register_redis_stores, SetOptions, Store};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -11,7 +12,9 @@ async fn main() -> Result<()> {
     // 1. 注册所有 Store 实现
     println!("1. 注册 Store 实现");
     register_hash_stores::<String, String>()?;
-    println!("   已注册 HashMapStore 和 SafeHashMapStore\n");
+    register_redis_stores::<String, String>()?;
+    register_serde_serializers::<String>()?;
+    println!("   已注册 Store\n");
 
     // 2. 使用 FileSource 加载配置
     println!("2. 从文件加载 Store 配置");
@@ -19,7 +22,7 @@ async fn main() -> Result<()> {
         base_path: "examples/kv/store/configs".to_string(),
     });
 
-    let type_options: TypeOptions = source.load("safe_hash_map_store")?.into_type()?;
+    let type_options: TypeOptions = source.load("redis_store")?.into_type()?;
     println!("   类型: {}", type_options.type_name);
     println!("   配置: {}\n", type_options.options);
 
@@ -92,7 +95,7 @@ async fn main() -> Result<()> {
     println!("\n=== 性能测试 ===");
     let start = std::time::Instant::now();
 
-    for i in 0..10000 {
+    for i in 0..1000 {
         store
             .set(
                 format!("perf_key_{}", i),
@@ -103,14 +106,14 @@ async fn main() -> Result<()> {
     }
 
     let set_duration = start.elapsed();
-    println!("设置 10000 个键值对耗时: {:?}", set_duration);
+    println!("设置 1000 个键值对耗时: {:?}", set_duration);
 
     let start = std::time::Instant::now();
-    for i in 0..10000 {
+    for i in 0..1000 {
         let _ = store.get(format!("perf_key_{}", i)).await?;
     }
     let get_duration = start.elapsed();
-    println!("获取 10000 个键值对耗时: {:?}", get_duration);
+    println!("获取 1000 个键值对耗时: {:?}", get_duration);
 
     // 9. 清理
     store.close().await?;
