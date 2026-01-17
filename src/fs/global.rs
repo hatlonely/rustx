@@ -78,8 +78,10 @@ mod tests {
     use std::thread;
     use std::time::Duration;
     use tempfile::TempDir;
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn test_global_watch() -> Result<()> {
         // 清理全局状态
         unwatch_all();
@@ -114,6 +116,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_global_unwatch_all() -> Result<()> {
         // 清理全局状态
         unwatch_all();
@@ -140,6 +143,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_multiple_global_watches() -> Result<()> {
         // 清理全局状态
         unwatch_all();

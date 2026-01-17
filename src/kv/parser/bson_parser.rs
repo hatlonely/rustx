@@ -244,6 +244,17 @@ impl<K, V> From<BsonParserConfig> for BsonParser<K, V> {
     }
 }
 
+// 实现 From<Box<BsonParser>> for Box<dyn Parser>（注册系统需要）
+impl<K, V> From<Box<BsonParser<K, V>>> for Box<dyn super::Parser<K, V>>
+where
+    K: ParseValue + Send + Sync + 'static,
+    V: for<'de> serde::Deserialize<'de> + Send + Sync + 'static,
+{
+    fn from(source: Box<BsonParser<K, V>>) -> Self {
+        source as Box<dyn super::Parser<K, V>>
+    }
+}
+
 impl<K, V> Parser<K, V> for BsonParser<K, V>
 where
     K: ParseValue + Send + Sync,

@@ -85,19 +85,24 @@ struct Database {
 
 impl Database {
     // 唯一的构造方法，使用 Config 结构创建
-    pub fn new(config: DatabaseConfig) -> Self {
-        Self {
+    // 如果构造过程可能失败，可以返回 Result<Self, Error>
+    pub fn new(config: DatabaseConfig) -> Result<Self, DatabaseError> {
+        if config.port == 0 {
+            return Err(DatabaseError::InvalidPort);
+        }
+        Ok(Self {
             host: config.host.clone(),
             port: config.port,
             connection: format!("{}:{}", config.host, config.port),
-        }
+        })
     }
 }
 
 // 实现 From trait，这是注册系统要求的
+// 如果 new 返回 Result，使用 expect 处理错误
 impl From<DatabaseConfig> for Database {
     fn from(config: DatabaseConfig) -> Self {
-        Database::new(config)
+        Database::new(config).expect("Failed to create Database")
     }
 }
 
@@ -203,6 +208,10 @@ let cache: Box<dyn Cache> = create_trait_from_type_options(&TypeOptions {
 - 配置结构体使用 `serde::Deserialize` 进行自动反序列化
 - 通过 `register`/`register_trait` 注册到类型系统
 - 使用 `create_from_type_options`/`create_trait_from_type_options` 进行动态创建
+- **构造方法返回值**：`new` 方法可以返回 `Self` 或 `Result<Self, Error>`，根据是否需要错误处理选择
+  - 简单场景：`pub fn new(config: XxxConfig) -> Self`
+  - 可能失败的场景：`pub fn new(config: XxxConfig) -> Result<Self, Error>`
+  - 从 Config 转换时使用 `impl_from!` 宏，失败场景使用 `expect` 模式
 
 **优势：**
 - **统一接口**：所有类型都通过相同的模式创建和配置

@@ -250,6 +250,17 @@ impl<K, V> From<JsonParserConfig> for JsonParser<K, V> {
     }
 }
 
+// 实现 From<Box<JsonParser>> for Box<dyn Parser>（注册系统需要）
+impl<K, V> From<Box<JsonParser<K, V>>> for Box<dyn super::Parser<K, V>>
+where
+    K: ParseValue + Send + Sync + 'static,
+    V: for<'de> serde::Deserialize<'de> + Send + Sync + 'static,
+{
+    fn from(source: Box<JsonParser<K, V>>) -> Self {
+        source as Box<dyn super::Parser<K, V>>
+    }
+}
+
 impl<K, V> Parser<K, V> for JsonParser<K, V>
 where
     K: ParseValue + Send + Sync,

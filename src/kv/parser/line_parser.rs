@@ -60,6 +60,17 @@ impl<K, V> From<LineParserConfig> for LineParser<K, V> {
     }
 }
 
+// 实现 From<Box<LineParser>> for Box<dyn Parser>（注册系统需要）
+impl<K, V> From<Box<LineParser<K, V>>> for Box<dyn super::Parser<K, V>>
+where
+    K: ParseValue + Send + Sync + 'static,
+    V: ParseValue + Send + Sync + 'static,
+{
+    fn from(source: Box<LineParser<K, V>>) -> Self {
+        source as Box<dyn super::Parser<K, V>>
+    }
+}
+
 impl<K, V> Parser<K, V> for LineParser<K, V>
 where
     K: ParseValue + Send + Sync,

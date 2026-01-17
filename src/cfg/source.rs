@@ -3,10 +3,8 @@
 //! 提供统一的配置来源接口，支持文件、数据库、配置中心等多种来源
 
 use anyhow::Result;
-use crossbeam::channel;
 use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
-use std::thread::JoinHandle;
 
 /// 配置值包装，提供类型转换能力
 ///
@@ -122,25 +120,5 @@ pub trait ConfigSource: Send + Sync {
     ///     }
     /// }).unwrap();
     /// ```
-    fn watch(&self, key: &str, handler: Box<dyn Fn(ConfigChange) + Send + 'static>) -> Result<()>;
-}
-
-/// 监听句柄（内部使用，不对外暴露）
-pub(crate) struct WatchHandle {
-    pub(crate) stop_sender: Option<channel::Sender<()>>,
-    pub(crate) thread_handle: Option<JoinHandle<()>>,
-}
-
-impl Drop for WatchHandle {
-    fn drop(&mut self) {
-        // 发送停止信号
-        if let Some(sender) = self.stop_sender.take() {
-            let _ = sender.send(());
-        }
-
-        // 等待线程结束
-        if let Some(handle) = self.thread_handle.take() {
-            let _ = handle.join();
-        }
-    }
+    fn watch(&self, key: &str, handler: Box<dyn Fn(ConfigChange) + Send + Sync + 'static>) -> Result<()>;
 }

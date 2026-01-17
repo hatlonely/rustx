@@ -8,37 +8,6 @@ use super::{
     BsonParserConfig, ParseValue,
 };
 
-// 实现 From<Box<Parser>> for Box<dyn Parser>（注册系统需要）
-impl<K, V> From<Box<LineParser<K, V>>> for Box<dyn Parser<K, V>>
-where
-    K: ParseValue + Send + Sync + 'static,
-    V: ParseValue + Send + Sync + 'static,
-{
-    fn from(source: Box<LineParser<K, V>>) -> Self {
-        source as Box<dyn Parser<K, V>>
-    }
-}
-
-impl<K, V> From<Box<JsonParser<K, V>>> for Box<dyn Parser<K, V>>
-where
-    K: ParseValue + Send + Sync + 'static,
-    V: for<'de> serde::Deserialize<'de> + Send + Sync + 'static,
-{
-    fn from(source: Box<JsonParser<K, V>>) -> Self {
-        source as Box<dyn Parser<K, V>>
-    }
-}
-
-impl<K, V> From<Box<BsonParser<K, V>>> for Box<dyn Parser<K, V>>
-where
-    K: ParseValue + Send + Sync + 'static,
-    V: for<'de> serde::Deserialize<'de> + Send + Sync + 'static,
-{
-    fn from(source: Box<BsonParser<K, V>>) -> Self {
-        source as Box<dyn Parser<K, V>>
-    }
-}
-
 /// 注册所有基础 Parser 实现
 ///
 /// 为指定的 K, V 类型组合注册所有可用的 Parser 实现。

@@ -4,11 +4,10 @@
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use super::source::{ConfigChange, ConfigSource, ConfigValue, WatchHandle};
+use super::source::{ConfigChange, ConfigSource, ConfigValue};
 use crate::{impl_from, impl_box_from};
 
 /// Apollo 配置中心源的配置
@@ -93,8 +92,6 @@ pub struct ApolloSource {
     cluster: String,
     /// HTTP 客户端
     client: reqwest::blocking::Client,
-    /// 内部维护所有监听句柄
-    watches: Arc<Mutex<Vec<WatchHandle>>>,
 }
 
 impl ApolloSource {
@@ -111,7 +108,6 @@ impl ApolloSource {
             client: reqwest::blocking::Client::builder()
                 .timeout(Duration::from_secs(90))
                 .build()?,
-            watches: Arc::new(Mutex::new(Vec::new())),
         })
     }
 }
@@ -162,10 +158,7 @@ impl ConfigSource for ApolloSource {
         Ok(ConfigValue::new(value))
     }
 
-    fn watch(&self, key: &str, handler: Box<dyn Fn(ConfigChange) + Send + 'static>) -> Result<()> {
-        // 创建停止信号通道
-        let (stop_tx, stop_rx) = crossbeam::channel::unbounded();
-
+    fn watch(&self, key: &str, handler: Box<dyn Fn(ConfigChange) + Send + Sync + 'static>) -> Result<()> {
         let url = format!("{}/notifications/v2", self.server_url);
         let client = self.client.clone();
         let app_id = self.app_id.clone();
@@ -177,16 +170,11 @@ impl ConfigSource for ApolloSource {
         let server_url = self.server_url.clone();
 
         // 启动监听线程
-        let thread_handle = thread::spawn(move || {
+        let _thread_handle = thread::spawn(move || {
             let mut notification_id = -1i64;
             let mut is_first_notification = true; // 标记是否是首次收到通知
 
             loop {
-                // 检查停止信号（非阻塞）
-                if stop_rx.try_recv().is_ok() {
-                    break;
-                }
-
                 // Apollo 长轮询
                 let params = serde_json::json!([{
                     "namespaceName": namespace,
@@ -311,20 +299,9 @@ impl ConfigSource for ApolloSource {
             }
         });
 
-        // 将 handle 存储到内部
-        let handle = WatchHandle {
-            stop_sender: Some(stop_tx),
-            thread_handle: Some(thread_handle),
-        };
-        self.watches.lock().unwrap().push(handle);
-
         Ok(())
     }
 }
-
-// 注意：ApolloSource 不需要显式实现 Drop
-// 当 ApolloSource drop 时，watches: Arc<Mutex<Vec<WatchHandle>>> 会自动 drop
-// 进而触发每个 WatchHandle 的 Drop，自动停止所有监听线程
 
 #[cfg(test)]
 mod tests {

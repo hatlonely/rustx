@@ -222,13 +222,9 @@ impl FileWatcher {
                             Ok(event) => {
                                 // 转换 notify 事件为 FileEvent
                                 for path in &event.paths {
-                                    // 对于删除事件，使用 dunce::canonicalize（更宽松）
-                                    let path_normalized = if event.kind.is_remove() {
-                                        dunce::canonicalize(path).unwrap_or(path.clone())
-                                    } else {
-                                        path.canonicalize()
-                                            .unwrap_or_else(|_| dunce::canonicalize(path).unwrap_or(path.clone()))
-                                    };
+                                    // 先尝试 canonicalize，如果失败则使用原始路径
+                                    let path_normalized = path.canonicalize()
+                                        .unwrap_or_else(|_| dunce::canonicalize(path).unwrap_or(path.clone()));
 
                                     let file_event = if event.kind.is_create() {
                                         Some(FileEvent::Created(path.clone()))
@@ -404,6 +400,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use tempfile::TempDir;
+    use serial_test::serial;
 
     #[test]
     fn test_file_watcher_create() {
@@ -422,6 +419,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_file_watcher_watch_modify() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let file_path = temp_dir.path().join("test.txt");
@@ -462,6 +460,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_file_watcher_watch_delete() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let file_path = temp_dir.path().join("test.txt");
@@ -500,6 +499,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_file_watcher_debounce() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let file_path = temp_dir.path().join("test.txt");
@@ -622,6 +622,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_file_watcher_multiple_files() -> Result<()> {
         let temp_dir = TempDir::new()?;
 
