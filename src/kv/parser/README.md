@@ -7,9 +7,16 @@
 ```rust
 use rustx::kv::parser::register_parsers;
 use rustx::cfg::{TypeOptions, create_trait_from_type_options};
+use rustx_macros::ParseValue;
+
+#[derive(Debug, Deserialize, ParseValue)]
+struct User {
+    name: String,
+    age: i32,
+}
 
 // 1. 注册 Parser 类型
-register_parsers::<String, serde_json::Value>()?;
+register_parsers::<String, User>()?;
 
 // 2. 通过配置创建 Parser
 let opts = TypeOptions::from_json(r#"{
@@ -19,8 +26,7 @@ let opts = TypeOptions::from_json(r#"{
     }
 }"#)?;
 
-let parser: Box<dyn Parser<String, serde_json::Value>> =
-    create_trait_from_type_options(&opts)?;
+let parser: Box<dyn Parser<String, serde_json::Value>> = create_trait_from_type_options(&opts)?;
 
 // 3. 解析数据
 let (ct, key, value) = parser.parse(b"hello\tworld")?;
@@ -112,18 +118,6 @@ struct User {
     name: String,
     age: i32,
 }
-
-register_parsers::<String, User>()?;
-
-let opts = TypeOptions::from_json(r#"{
-    "type": "JsonParser",
-    "options": {
-        "key_fields": ["id"]
-    }
-}"#)?;
-
-let parser: Box<dyn Parser<String, User>> = create_trait_from_type_options(&opts)?;
-let (ct, key, user) = parser.parse(br#"{"id":"123","name":"Alice","age":30}"#)?;
 ```
 
 ### LineParser - 自定义结构体支持
@@ -139,20 +133,6 @@ struct User {
     name: String,
     age: i32,
 }
-
-register_parsers::<String, User>()?;
-
-let opts = TypeOptions::from_json(r#"{
-    "type": "LineParser",
-    "options": {
-        "separator": "\t"
-    }
-}"#)?;
-
-let parser: Box<dyn Parser<String, User>> = create_trait_from_type_options(&opts)?;
-
-// 解析: "user123\t{\"name\":\"Alice\",\"age\":30}"
-let (ct, key, user) = parser.parse(b"user123\t{\"name\":\"Alice\",\"age\":30}")?;
 ```
 
 ## ChangeType 说明
