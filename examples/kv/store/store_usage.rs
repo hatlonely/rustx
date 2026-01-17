@@ -2,7 +2,7 @@ use anyhow::Result;
 use rustx::cfg::{
     create_trait_from_type_options, ConfigSource, FileSource, FileSourceConfig, TypeOptions,
 };
-use rustx::kv::store::{register_stores, SetOptions, Store};
+use rustx::kv::store::{register_hash_stores, SetOptions, Store};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -10,7 +10,7 @@ async fn main() -> Result<()> {
 
     // 1. 注册所有 Store 实现
     println!("1. 注册 Store 实现");
-    register_stores::<String, String>()?;
+    register_hash_stores::<String, String>()?;
     println!("   已注册 HashMapStore 和 SafeHashMapStore\n");
 
     // 2. 使用 FileSource 加载配置

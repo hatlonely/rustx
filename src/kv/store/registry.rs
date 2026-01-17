@@ -3,9 +3,7 @@ use std::hash::Hash;
 
 use crate::cfg::register_trait;
 
-use super::{
-    HashMapStore, HashMapStoreConfig, SafeHashMapStore, SafeHashMapStoreConfig, Store,
-};
+use super::{HashMapStore, HashMapStoreConfig, SafeHashMapStore, SafeHashMapStoreConfig, Store};
 
 /// 注册所有 Store 实现到 cfg 注册表
 ///
@@ -37,7 +35,7 @@ use super::{
 ///
 /// let store: Box<dyn Store<String, String>> = create_trait_from_type_options(&opts)?;
 /// ```
-pub fn register_stores<K, V>() -> Result<()>
+pub fn register_hash_stores<K, V>() -> Result<()>
 where
     K: Clone + Send + Sync + Eq + Hash + 'static,
     V: Clone + Send + Sync + 'static,
@@ -57,7 +55,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_register_stores_string_string() -> Result<()> {
-        register_stores::<String, String>()?;
+        register_hash_stores::<String, String>()?;
 
         // 测试 HashMapStore
         let opts = TypeOptions::from_json(
@@ -82,7 +80,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_register_stores_safe_hash_map() -> Result<()> {
-        register_stores::<String, i32>()?;
+        register_hash_stores::<String, i32>()?;
 
         // 测试 SafeHashMapStore
         let opts = TypeOptions::from_json(
@@ -107,22 +105,18 @@ mod tests {
     #[tokio::test]
     async fn test_register_multiple_type_combinations() -> Result<()> {
         // 注册多种类型组合
-        register_stores::<String, String>()?;
-        register_stores::<String, i64>()?;
-        register_stores::<i32, String>()?;
+        register_hash_stores::<String, String>()?;
+        register_hash_stores::<String, i64>()?;
+        register_hash_stores::<i32, String>()?;
 
         // 验证各类型组合都能正常工作
-        let opts_str_str = TypeOptions::from_json(
-            r#"{"type": "HashMapStore", "options": {}}"#,
-        )?;
-        let opts_str_i64 = TypeOptions::from_json(
-            r#"{"type": "SafeHashMapStore", "options": {}}"#,
-        )?;
+        let opts_str_str = TypeOptions::from_json(r#"{"type": "HashMapStore", "options": {}}"#)?;
+        let opts_str_i64 =
+            TypeOptions::from_json(r#"{"type": "SafeHashMapStore", "options": {}}"#)?;
 
         let _store1: Box<dyn Store<String, String>> =
             create_trait_from_type_options(&opts_str_str)?;
-        let _store2: Box<dyn Store<String, i64>> =
-            create_trait_from_type_options(&opts_str_i64)?;
+        let _store2: Box<dyn Store<String, i64>> = create_trait_from_type_options(&opts_str_i64)?;
 
         Ok(())
     }

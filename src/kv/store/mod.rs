@@ -9,4 +9,4 @@ pub use core::{KvError, SetOptions, Store};
 pub use safe_hash_map_store::{SafeHashMapStore, SafeHashMapStoreConfig};
 pub use hash_map_store::{HashMapStore, HashMapStoreConfig};
 // 重新导出注册函数
-pub use registry::register_stores;
+pub use registry::register_hash_stores;
