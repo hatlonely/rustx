@@ -1,4 +1,3 @@
-use std::future::Future;
 use thiserror::Error;
 
 /// 数据变更类型（对应 Golang ChangeType）
@@ -24,17 +23,21 @@ pub enum ParserError {
 }
 
 /// 核心解析器 trait（对应 Golang Parser[K, V] interface）
-/// 
-/// K: 键类型
-/// V: 值类型
-pub trait Parser<K, V>: Send + Sync {
+///
+/// K: 键类型，需要支持字符串反序列化
+/// V: 值类型，需要支持 JSON/BSON 反序列化
+pub trait Parser<K, V>: Send + Sync
+where
+    K: Send + Sync,
+    V: Send + Sync,
+{
     /// 解析单条记录（对应 Golang Parse 方法）
-    /// 
+    ///
     /// # 参数
     /// - buf: 待解析的字节数据
-    /// 
+    ///
     /// # 返回
     /// - Ok((ChangeType, K, V)): 解析结果
     /// - Err(ParserError): 解析失败
-    fn parse(&self, buf: &[u8]) -> impl Future<Output = Result<(ChangeType, K, V), ParserError>> + Send;
+    fn parse(&self, buf: &[u8]) -> Result<(ChangeType, K, V), ParserError>;
 }
