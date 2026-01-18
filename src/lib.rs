@@ -7,6 +7,7 @@
 //! - **cfg**: 配置管理模块（对应 Golang cfg 包）
 //! - **kv**: 键值存储抽象模块（对应 Golang kv 包）
 //! - **fs**: 文件系统操作模块（对应 Golang fs 包）
+//! - **log**: 日志模块（支持多种格式和输出方式）
 //!
 //! ## 设计理念
 //!
@@ -19,6 +20,7 @@
 pub mod cfg;
 pub mod fs;
 pub mod kv;
+pub mod log;
 pub mod proto;
 
 // 重新导出主要的公共 API
@@ -30,6 +32,9 @@ pub use kv::{
     ChangeType, KvError, KvStream, Listener, Loader, LoaderError, Parser, ParserError, Serializer,
     SerializerError, SetOptions, Store, LOAD_STRATEGY_INPLACE, LOAD_STRATEGY_REPLACE,
 };
+
+pub use log::{LogLevel, Logger, LoggerConfig, LogAppender, LogFormatter, LogRecord};
+pub use log::{create_logger_from_config, register_log_components};
 
 // 重新导出 ParseValue trait 和派生宏
 pub use kv::parser::ParseValue;

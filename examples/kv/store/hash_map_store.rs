@@ -11,7 +11,7 @@ async fn main() -> Result<()> {
 
     // JSON 配置示例 - 使用已知的类型名
     let json_config = r#"{
-        "type": "rustx::kv::store::hash_map_store::HashMapStore<alloc::string::String, alloc::string::String>",
+        "type": "HashMapStore<String, String>",
         "options": {
             "initial_capacity": 1000
         }
@@ -46,7 +46,7 @@ async fn main() -> Result<()> {
                 SetOptions::new().with_if_not_exist(),
             )
             .await;
-        
+
         match result {
             Err(_) => println!("🚫 key1 已存在，条件设置失败（符合预期）"),
             Ok(_) => println!("⚠️  key1 不存在时才能设置，但设置成功了？"),
@@ -86,13 +86,17 @@ async fn main() -> Result<()> {
         // 测试性能对比示例
         println!("\n=== 性能测试示例 ===");
         let start = std::time::Instant::now();
-        
+
         for i in 0..10000 {
             store
-                .set(format!("perf_key_{}", i), format!("perf_value_{}", i), SetOptions::new())
+                .set(
+                    format!("perf_key_{}", i),
+                    format!("perf_value_{}", i),
+                    SetOptions::new(),
+                )
                 .await?;
         }
-        
+
         let set_duration = start.elapsed();
         println!("⚡ 设置 10000 个键值对耗时: {:?}", set_duration);
 

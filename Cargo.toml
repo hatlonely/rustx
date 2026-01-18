@@ -35,6 +35,8 @@ dunce = "1.0"
 rayon = "1.10"
 num_cpus = "1.16"
 rustx-macros = { path = "macros" }
+colored = "2.1"
+chrono = "0.4"
 
 [build-dependencies]
 prost-build = "0.12"
@@ -43,6 +45,15 @@ prost-build = "0.12"
 tempfile = "3.0"
 mockito = "1.2"
 serial_test = "3.0"
+criterion = "0.5"
+
+[[bench]]
+name = "formatter_benchmark"
+harness = false
+
+[[bench]]
+name = "logger_benchmark"
+harness = false
 
 # Examples configuration
 [[example]]
@@ -92,3 +103,11 @@ path = "examples/kv/serializer/protobuf_usage.rs"
 [[example]]
 name = "fs_file_watcher_usage"
 path = "examples/fs/file_watcher_usage.rs"
+
+[[example]]
+name = "log_basic_usage"
+path = "examples/log/basic_usage.rs"
+
+[[example]]
+name = "log_file_appender_usage"
+path = "examples/log/file_appender_usage.rs"

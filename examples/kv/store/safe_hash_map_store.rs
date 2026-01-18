@@ -11,7 +11,7 @@ async fn main() -> Result<()> {
 
     // JSON 配置示例 - 使用已知的类型名
     let json_config = r#"{
-        "type": "rustx::kv::store::safe_hash_map_store::SafeHashMapStore<alloc::string::String, alloc::string::String>",
+        "type": "SafeHashMapStore<String, String>",
         "options": {
             "initial_capacity": 10000
         }
