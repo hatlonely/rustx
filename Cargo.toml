@@ -109,3 +109,7 @@ path = "examples/log/global_default_logger.rs"
 [[example]]
 name = "log_global_init_logger"
 path = "examples/log/global_init_logger.rs"
+
+[[example]]
+name = "log_struct_metadata"
+path = "examples/log/struct_metadata.rs"
