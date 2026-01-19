@@ -1,0 +1,96 @@
+{
+  // Logger 管理器配置示例
+
+  // 默认 logger（当没有指定 key 时使用）
+  default: {
+    level: "info",
+    formatter: {
+      type: "TextFormatter",
+      options: {
+        colored: true
+      }
+    },
+    appender: {
+      type: "ConsoleAppender",
+      options: {
+        target: "stdout",
+        auto_flush: true
+      }
+    }
+  },
+
+  loggers: {
+    // 完整配置的 logger：生产环境日志
+    "production": {
+      level: "info",
+      formatter: {
+        type: "JsonFormatter",
+        options: {
+          pretty: false
+        }
+      },
+      appender: {
+        type: "RollingFileAppender",
+        options: {
+          base_path: "/var/log/app",
+          file_prefix: "app",
+          file_suffix: "log",
+          policy: {
+            type: "TimePolicy",
+            options: {
+              pattern: "%Y-%m-%d",
+              max_files: 30
+            }
+          }
+        }
+      }
+    },
+
+    // 完整配置的 logger：调试日志
+    "debug": {
+      level: "trace",
+      formatter: {
+        type: "TextFormatter",
+        options: {
+          colored: true,
+          display_thread: true,
+          display_location: true
+        }
+      },
+      appender: {
+        type: "ConsoleAppender",
+        options: {
+          target: "stdout",
+          auto_flush: true
+        }
+      }
+    },
+
+    // 使用 $instance 引用已有的 logger
+    // 这样多个模块可以共享同一个 logger 配置
+    "auth_module": {
+      "$instance": "production"
+    },
+
+    "user_module": {
+      "$instance": "production"
+    },
+
+    "payment_module": {
+      "$instance": "production"
+    },
+
+    "api": {
+      "$instance": "production"
+    },
+
+    // 开发环境模块使用 debug logger
+    "dev_tools": {
+      "$instance": "debug"
+    },
+
+    "test_module": {
+      "$instance": "debug"
+    }
+  }
+}

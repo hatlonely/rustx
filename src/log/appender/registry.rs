@@ -1,5 +1,5 @@
 use anyhow::Result;
-use crate::cfg::{register_trait, TypeOptions, create_trait_from_type_options};
+use crate::cfg::register_trait;
 use crate::log::appender::LogAppender;
 use crate::log::appender::{
     console_appender::{ConsoleAppender, ConsoleAppenderConfig},
@@ -15,14 +15,10 @@ pub fn register_appenders() -> Result<()> {
     Ok(())
 }
 
-/// 从 TypeOptions 创建 Appender
-pub fn create_appender_from_options(options: &TypeOptions) -> Result<Box<dyn LogAppender>> {
-    create_trait_from_type_options(options)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cfg::{TypeOptions, create_trait_from_type_options};
 
     #[tokio::test]
     async fn test_register_appenders() -> Result<()> {
@@ -41,7 +37,7 @@ mod tests {
         "#,
         )?;
 
-        let appender = create_appender_from_options(&opts)?;
+        let appender: Box<dyn LogAppender> = create_trait_from_type_options(&opts)?;
         // 验证能够成功创建 appender
         assert!(appender.append("test message").await.is_ok());
 
@@ -65,7 +61,7 @@ mod tests {
             temp_file.path().display()
         ))?;
 
-        let appender = create_appender_from_options(&opts)?;
+        let appender: Box<dyn LogAppender> = create_trait_from_type_options(&opts)?;
         // 验证能够成功创建 appender
         assert!(appender.append("test message").await.is_ok());
 
@@ -91,7 +87,7 @@ mod tests {
             log_path.display()
         ))?;
 
-        let appender = create_appender_from_options(&opts)?;
+        let appender: Box<dyn LogAppender> = create_trait_from_type_options(&opts)?;
         // 验证能够成功创建 appender
         assert!(appender.append("test message").await.is_ok());
 

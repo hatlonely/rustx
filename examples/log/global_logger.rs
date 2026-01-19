@@ -128,7 +128,7 @@ async fn main() -> Result<()> {
 
     // 7. 动态添加新的 logger
     println!("\n7. 动态添加新的 logger:");
-    let audit_config: LoggerConfig = json5::from_str(
+    let audit_config: LoggerCreateConfig = json5::from_str(
         r#"
         {
             level: "info",

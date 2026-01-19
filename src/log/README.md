@@ -117,6 +117,77 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
+### 5. Logger 引用与创建
+
+Logger 支持两种配置方式：引用全局 logger 或创建全新的 logger。
+
+**服务配置设计：**
+
+```rust
+use rustx::log::*;
+use std::sync::Arc;
+use serde::Deserialize;
+use smart_default::SmartDefault;
+
+// 服务配置（遵循 Config 命名规范）
+#[derive(Deserialize, SmartDefault)]
+#[serde(default)]
+pub struct MyServiceConfig {
+    #[default = "MyService"]
+    pub name: String,
+    pub logger: LoggerConfig,
+}
+
+// 服务类（只提供一个 new 方法）
+pub struct MyService {
+    name: String,
+    logger: Arc<Logger>,
+}
+
+impl MyService {
+    pub fn new(config: MyServiceConfig) -> Result<Self> {
+        let logger = Logger::resolve(config.logger)?;
+        Ok(Self {
+            name: config.name,
+            logger,
+        })
+    }
+}
+
+// 实现从 Config 到 Service 的转换
+impl From<MyServiceConfig> for MyService {
+    fn from(config: MyServiceConfig) -> Self {
+        MyService::new(config).expect("Failed to create MyService")
+    }
+}
+```
+
+**使用方式：**
+
+```rust
+// 方式 1: 引用全局 logger
+let config: MyServiceConfig = json5::from_str(r#"
+    {
+        name: "UserService",
+        logger: { "$instance": "production" }
+    }
+"#)?;
+let service = MyService::new(config)?;
+
+// 方式 2: 创建全新的 logger
+let config: MyServiceConfig = json5::from_str(r#"
+    {
+        name: "PaymentService",
+        logger: {
+            level: "debug",
+            formatter: { type: "TextFormatter" },
+            appender: { type: "ConsoleAppender" }
+        }
+    }
+"#)?;
+let service = MyService::new(config)?;
+```
+
 ## 日志级别
 
 支持 5 个日志级别：`Trace` < `Debug` < `Info` < `Warn` < `Error`

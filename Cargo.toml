@@ -54,7 +54,7 @@ name = "text_formatter_benchmark"
 path = "benches/log/formatter/text_formatter_benchmark.rs"
 harness = false
 
-# Examples configuration
+# Examples in subdirectories (must be explicitly declared)
 [[example]]
 name = "cfg_register_usage"
 path = "examples/cfg/register_usage.rs"
@@ -104,13 +104,17 @@ name = "fs_file_watcher_usage"
 path = "examples/fs/file_watcher_usage.rs"
 
 [[example]]
-name = "log_global_default_logger"
-path = "examples/log/global_default_logger.rs"
+name = "log_default_logger"
+path = "examples/log/default_logger.rs"
 
 [[example]]
-name = "log_global_init_logger"
-path = "examples/log/global_init_logger.rs"
+name = "log_global_logger"
+path = "examples/log/global_logger.rs"
 
 [[example]]
 name = "log_struct_metadata"
 path = "examples/log/struct_metadata.rs"
+
+[[example]]
+name = "log_logger_instance"
+path = "examples/log/logger_instance.rs"

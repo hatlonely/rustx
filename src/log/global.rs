@@ -155,8 +155,8 @@ mod tests {
     use super::*;
     use crate::log::logger::LoggerConfig;
 
-    /// 辅助函数：创建测试用的 LoggerConfig
-    fn create_test_logger_config(level: &str) -> LoggerConfig {
+    /// 辅助函数：创建测试用的 LoggerCreateConfig
+    fn create_test_logger_config(level: &str) -> crate::log::logger::LoggerCreateConfig {
         let config_json = format!(r#"{{
             level: "{}",
             formatter: {{
@@ -169,7 +169,7 @@ mod tests {
             }}
         }}"#, level);
 
-        json5::from_str(&config_json).expect("Failed to parse LoggerConfig")
+        json5::from_str(&config_json).expect("Failed to parse LoggerCreateConfig")
     }
 
     #[tokio::test]
@@ -193,11 +193,11 @@ mod tests {
     #[tokio::test]
     async fn test_init_logger_manager() -> Result<()> {
         let mut loggers = std::collections::HashMap::new();
-        loggers.insert("main".to_string(), create_test_logger_config("info"));
-        loggers.insert("db".to_string(), create_test_logger_config("debug"));
+        loggers.insert("main".to_string(), LoggerConfig::Create(create_test_logger_config("info")));
+        loggers.insert("db".to_string(), LoggerConfig::Create(create_test_logger_config("debug")));
 
         let config = LoggerManagerConfig {
-            default: create_test_logger_config("warn"),
+            default: LoggerConfig::Create(create_test_logger_config("warn")),
             loggers,
         };
 

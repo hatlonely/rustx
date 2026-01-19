@@ -11,10 +11,10 @@ use anyhow::Result;
 use std::sync::{Arc, Once};
 use tokio::sync::RwLock;
 
-/// Logger 配置
+/// Logger 创建配置（用于创建新的 Logger 实例）
 #[derive(Debug, Clone, Deserialize, SmartDefault)]
 #[serde(default)]
-pub struct LoggerConfig {
+pub struct LoggerCreateConfig {
     /// 日志级别
     #[default = "info"]
     pub level: String,
@@ -26,6 +26,31 @@ pub struct LoggerConfig {
     /// Appender 配置
     #[default(TypeOptions { type_name: "ConsoleAppender".to_string(), options: serde_json::json!({}) })]
     pub appender: TypeOptions,
+}
+
+/// Logger 配置
+///
+/// 支持两种模式：
+/// - Reference: 引用已存在的 logger 实例（通过 $instance 字段）
+/// - Create: 创建新的 logger 实例
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum LoggerConfig {
+    /// 引用一个已存在的 logger 实例
+    Reference {
+        /// 引用的 logger 实例名称
+        #[serde(rename = "$instance")]
+        instance: String,
+    },
+
+    /// 创建新的 logger 实例
+    Create(LoggerCreateConfig),
+}
+
+impl Default for LoggerConfig {
+    fn default() -> Self {
+        LoggerConfig::Create(LoggerCreateConfig::default())
+    }
 }
 
 /// 注册所有日志组件（只执行一次）
@@ -41,8 +66,8 @@ pub struct Logger {
 }
 
 impl Logger {
-    /// 从配置创建 Logger
-    pub fn new(config: LoggerConfig) -> Result<Self> {
+    /// 从创建配置创建 Logger
+    pub fn new(config: LoggerCreateConfig) -> Result<Self> {
         // 注册所有日志组件（只执行一次）
         REGISTER_ONCE.call_once(|| {
             let _ = crate::log::register_formatters();
@@ -65,6 +90,25 @@ impl Logger {
             formatter,
             appender,
         })
+    }
+
+    /// 从配置解析 Logger
+    ///
+    /// 如果配置是 Reference 模式，从全局管理器获取已存在的 logger
+    /// 如果配置是 Create 模式，创建新的 logger
+    pub fn resolve(config: LoggerConfig) -> Result<Arc<Self>> {
+        match config {
+            LoggerConfig::Reference { instance } => {
+                // 从全局管理器获取已存在的 logger
+                crate::log::get_logger(&instance)
+                    .ok_or_else(|| anyhow::anyhow!("Logger instance '{}' not found in global manager", instance))
+            }
+
+            LoggerConfig::Create(create_config) => {
+                // 创建新的 logger
+                Ok(Arc::new(Logger::new(create_config)?))
+            }
+        }
     }
 
     /// 设置日志级别
@@ -243,8 +287,8 @@ impl Logger {
     }
 }
 
-impl From<LoggerConfig> for Logger {
-    fn from(config: LoggerConfig) -> Self {
+impl From<LoggerCreateConfig> for Logger {
+    fn from(config: LoggerCreateConfig) -> Self {
         Logger::new(config).expect("Failed to create Logger")
     }
 }
@@ -268,8 +312,8 @@ mod tests {
             }}
         }}"#, level);
 
-        let config: LoggerConfig = json5::from_str(&config_json)
-            .expect("Failed to parse LoggerConfig");
+        let config: LoggerCreateConfig = json5::from_str(&config_json)
+            .expect("Failed to parse LoggerCreateConfig");
 
         Logger::new(config).unwrap()
     }
@@ -306,7 +350,7 @@ mod tests {
     #[tokio::test]
     async fn test_logger_from_config() -> Result<()> {
         // 使用 json5::from_str 创建 config
-        let config: LoggerConfig = json5::from_str(
+        let config: LoggerCreateConfig = json5::from_str(
             r#"
             {
                 level: "debug",

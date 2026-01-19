@@ -1,5 +1,5 @@
 use anyhow::Result;
-use crate::cfg::{register_trait, TypeOptions, create_trait_from_type_options};
+use crate::cfg::register_trait;
 use crate::log::formatter::LogFormatter;
 use crate::log::formatter::{
     text_formatter::{TextFormatter, TextFormatterConfig},
@@ -13,14 +13,10 @@ pub fn register_formatters() -> Result<()> {
     Ok(())
 }
 
-/// 从 TypeOptions 创建 Formatter
-pub fn create_formatter_from_options(options: &TypeOptions) -> Result<Box<dyn LogFormatter>> {
-    create_trait_from_type_options(options)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cfg::{TypeOptions, create_trait_from_type_options};
     use crate::log::{LogRecord, LogLevel};
 
     #[test]
@@ -39,7 +35,7 @@ mod tests {
         "#,
         )?;
 
-        let formatter = create_formatter_from_options(&opts)?;
+        let formatter: Box<dyn LogFormatter> = create_trait_from_type_options(&opts)?;
         // 验证能够成功创建 formatter
         assert!(formatter.format(&LogRecord::new(LogLevel::Info, "msg".to_string())).is_ok());
 
@@ -59,7 +55,7 @@ mod tests {
         "#,
         )?;
 
-        let formatter = create_formatter_from_options(&opts)?;
+        let formatter: Box<dyn LogFormatter> = create_trait_from_type_options(&opts)?;
         // 验证能够成功创建 formatter
         assert!(formatter.format(&LogRecord::new(LogLevel::Info, "msg".to_string())).is_ok());
 
@@ -81,7 +77,7 @@ mod tests {
         "#,
         )?;
 
-        let formatter = create_formatter_from_options(&opts)?;
+        let formatter: Box<dyn LogFormatter> = create_trait_from_type_options(&opts)?;
         // 验证能够成功创建 formatter
         assert!(formatter.format(&LogRecord::new(LogLevel::Info, "msg".to_string())).is_ok());
 

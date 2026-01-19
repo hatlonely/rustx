@@ -61,7 +61,7 @@ pub mod record;
 pub use appender::LogAppender;
 pub use formatter::LogFormatter;
 pub use level::LogLevel;
-pub use logger::{Logger, LoggerConfig};
+pub use logger::{Logger, LoggerConfig, LoggerCreateConfig};
 pub use manager::{LoggerManager, LoggerManagerConfig};
 
 pub use global::{
