@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
+use smart_default::SmartDefault;
 use std::time::Duration;
 
 use super::core::{KvError, SetOptions, Store};
@@ -21,85 +22,49 @@ pub enum RedisError {
 }
 
 /// Redis 存储配置（简化版，与 Go 版本对齐）
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, SmartDefault)]
+#[serde(default)]
 pub struct RedisStoreConfig {
     // ===== 连接配置 =====
     /// 单机模式：host:port 地址（如 "localhost:6379"）
-    #[serde(default)]
     pub endpoint: Option<String>,
 
     /// 集群模式：节点地址列表（如 ["node1:6379", "node2:6379"]）
-    #[serde(default)]
     pub endpoints: Option<Vec<String>>,
 
     // ===== 认证配置 =====
     /// Redis 6.0+ ACL 用户名
-    #[serde(default)]
     pub username: Option<String>,
 
     /// 密码
-    #[serde(default)]
     pub password: Option<String>,
 
     // ===== 数据库配置 =====
     /// 数据库编号（默认 0，仅单机模式有效）
-    #[serde(default = "default_db")]
+    #[default = 0]
     pub db: i64,
 
     /// 默认 TTL（秒），0 表示不设置过期时间
-    #[serde(default = "default_ttl")]
+    #[default = 0]
     pub default_ttl: u64,
 
     // ===== 超时配置 =====
     /// 连接超时（秒）
-    #[serde(default = "default_connection_timeout")]
+    #[default = 5]
     pub connection_timeout: u64,
 
     /// 命令执行超时（秒）
-    #[serde(default = "default_command_timeout")]
+    #[default = 3]
     pub command_timeout: u64,
 
     // ===== 序列化器配置 =====
     /// 键序列化器配置（使用 TypeOptions 动态创建）
     /// 默认使用 "JsonSerializer"
-    #[serde(default)]
     pub key_serializer: Option<TypeOptions>,
 
     /// 值序列化器配置（使用 TypeOptions 动态创建）
     /// 默认使用 "JsonSerializer"
-    #[serde(default)]
     pub val_serializer: Option<TypeOptions>,
-}
-
-// 默认值函数
-fn default_db() -> i64 {
-    0
-}
-fn default_ttl() -> u64 {
-    0
-}
-fn default_connection_timeout() -> u64 {
-    5
-}
-fn default_command_timeout() -> u64 {
-    3
-}
-
-impl Default for RedisStoreConfig {
-    fn default() -> Self {
-        Self {
-            endpoint: None,
-            endpoints: None,
-            username: None,
-            password: None,
-            db: default_db(),
-            default_ttl: default_ttl(),
-            connection_timeout: default_connection_timeout(),
-            command_timeout: default_command_timeout(),
-            key_serializer: None,
-            val_serializer: None,
-        }
-    }
 }
 
 /// Redis 存储实现

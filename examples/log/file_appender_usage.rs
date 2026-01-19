@@ -3,9 +3,6 @@ use rustx::log::*;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 注册所有组件
-    register_log_components()?;
-
     // 从 JSON 构建 LoggerConfig - 使用 JSON 格式 + 文件输出
     let config: LoggerConfig = json5::from_str(
         r#"

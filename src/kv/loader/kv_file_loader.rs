@@ -5,14 +5,17 @@ use crate::cfg::TypeOptions;
 use crate::fs::{watch, FileEvent};
 use crate::kv::loader::core::{Loader, Listener, LoaderError};
 use crate::kv::parser::Parser;
+use smart_default::SmartDefault;
 
 /// KvFileLoader 配置（遵循 cfg/README.md 最佳实践）
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, SmartDefault)]
+#[serde(default)]
 pub struct KvFileLoaderConfig {
     /// 文件路径
     pub file_path: String,
 
     /// Parser 配置
+    #[serde(default)]
     pub parser: TypeOptions,
 
     /// 是否跳过脏数据（默认：false，遇到脏数据时直接报错并返回）
@@ -20,20 +23,12 @@ pub struct KvFileLoaderConfig {
     pub skip_dirty_rows: bool,
 
     /// Scanner buffer 最小大小（默认：65536）
-    #[serde(default = "default_scanner_buffer_min_size")]
+    #[default = 65536]
     pub scanner_buffer_min_size: usize,
 
     /// Scanner buffer 最大大小（默认：4194304）
-    #[serde(default = "default_scanner_buffer_max_size")]
+    #[default = 4194304]
     pub scanner_buffer_max_size: usize,
-}
-
-fn default_scanner_buffer_min_size() -> usize {
-    65536
-}
-
-fn default_scanner_buffer_max_size() -> usize {
-    4194304
 }
 
 /// KV 文件加载器：从文件加载 KV 数据，支持文件变化监听

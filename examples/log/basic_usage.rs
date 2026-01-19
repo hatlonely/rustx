@@ -3,10 +3,7 @@ use anyhow::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 1. 注册所有组件
-    register_log_components()?;
-
-    // 2. 从 JSON 构建 LoggerConfig - 使用文本格式 + 终端输出
+    // 1. 从 JSON 构建 LoggerConfig - 使用文本格式 + 终端输出
     let config: LoggerConfig = json5::from_str(
         r#"
         {
@@ -27,10 +24,10 @@ async fn main() -> Result<()> {
         "#,
     )?;
 
-    // 3. 创建 Logger
+    // 2. 创建 Logger
     let logger = Logger::new(config)?;
 
-    // 4. 使用 Logger
+    // 3. 使用 Logger
     logger
         .info("Application started".to_string())
         .await?;
@@ -47,7 +44,7 @@ async fn main() -> Result<()> {
         .error("Error occurred".to_string())
         .await?;
 
-    // 5. 动态切换日志级别
+    // 4. 动态切换日志级别
     println!("\n=== Switching to DEBUG level ===\n");
     logger.set_level(LogLevel::Debug).await;
 

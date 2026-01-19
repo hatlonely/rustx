@@ -9,7 +9,7 @@
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<()> {
-///     let logger = create_logger_from_config(config).await?;
+///     let logger = Logger::new(config)?;
 ///
 ///     // 简单日志
 ///     info!(logger, "application started");
@@ -139,6 +139,152 @@ macro_rules! trace {
     };
     ($logger:expr, $msg:expr, $($key:expr => $value:expr),* $(,)?) => {
         $logger.log(
+            crate::log::LogRecord::new(crate::log::LogLevel::Trace, $msg.into())
+                .with_location(file!().to_string(), line!())
+                $(.with_metadata($key, $value))*
+        ).await
+    };
+}
+
+// ========== 全局默认 logger 的宏 ==========
+///
+/// 这些宏不需要传递 logger 参数，直接使用全局默认 logger
+///
+/// # 示例
+///
+/// ```ignore
+/// use rustx::log::*;
+///
+/// #[tokio::main]
+/// async fn main() -> Result<()> {
+///     // 简单日志
+///     ginfo!("application started");
+///
+///     // 带 metadata 的日志
+///     ginfo!("user logged in", "user_id" => 12345, "username" => "alice");
+///
+///     Ok(())
+/// }
+/// ```
+
+/// 使用全局默认 logger 记录 INFO 级别日志
+///
+/// # 示例
+///
+/// ```ignore
+/// ginfo!("user logged in");
+/// ginfo!("user action", "user_id" => 12345, "action" => "login");
+/// ```
+#[macro_export]
+macro_rules! ginfo {
+    ($msg:expr) => {
+        crate::log::info(
+            crate::log::LogRecord::new(crate::log::LogLevel::Info, $msg.into())
+                .with_location(file!().to_string(), line!())
+        ).await
+    };
+    ($msg:expr, $($key:expr => $value:expr),* $(,)?) => {
+        crate::log::info(
+            crate::log::LogRecord::new(crate::log::LogLevel::Info, $msg.into())
+                .with_location(file!().to_string(), line!())
+                $(.with_metadata($key, $value))*
+        ).await
+    };
+}
+
+/// 使用全局默认 logger 记录 DEBUG 级别日志
+///
+/// # 示例
+///
+/// ```ignore
+/// gdebug!("processing request");
+/// gdebug!("processing", "endpoint" => "/api/users", "method" => "GET");
+/// ```
+#[macro_export]
+macro_rules! gdebug {
+    ($msg:expr) => {
+        crate::log::debug(
+            crate::log::LogRecord::new(crate::log::LogLevel::Debug, $msg.into())
+                .with_location(file!().to_string(), line!())
+        ).await
+    };
+    ($msg:expr, $($key:expr => $value:expr),* $(,)?) => {
+        crate::log::debug(
+            crate::log::LogRecord::new(crate::log::LogLevel::Debug, $msg.into())
+                .with_location(file!().to_string(), line!())
+                $(.with_metadata($key, $value))*
+        ).await
+    };
+}
+
+/// 使用全局默认 logger 记录 WARN 级别日志
+///
+/// # 示例
+///
+/// ```ignore
+/// gwarn!("high memory usage");
+/// gwarn!("slow query", "duration_ms" => 1500, "threshold_ms" => 1000);
+/// ```
+#[macro_export]
+macro_rules! gwarn {
+    ($msg:expr) => {
+        crate::log::warn(
+            crate::log::LogRecord::new(crate::log::LogLevel::Warn, $msg.into())
+                .with_location(file!().to_string(), line!())
+        ).await
+    };
+    ($msg:expr, $($key:expr => $value:expr),* $(,)?) => {
+        crate::log::warn(
+            crate::log::LogRecord::new(crate::log::LogLevel::Warn, $msg.into())
+                .with_location(file!().to_string(), line!())
+                $(.with_metadata($key, $value))*
+        ).await
+    };
+}
+
+/// 使用全局默认 logger 记录 ERROR 级别日志
+///
+/// # 示例
+///
+/// ```ignore
+/// gerror!("database connection failed");
+/// gerror!("query failed", "error_code" => "CONN001", "retry_count" => 3);
+/// ```
+#[macro_export]
+macro_rules! gerror {
+    ($msg:expr) => {
+        crate::log::error(
+            crate::log::LogRecord::new(crate::log::LogLevel::Error, $msg.into())
+                .with_location(file!().to_string(), line!())
+        ).await
+    };
+    ($msg:expr, $($key:expr => $value:expr),* $(,)?) => {
+        crate::log::error(
+            crate::log::LogRecord::new(crate::log::LogLevel::Error, $msg.into())
+                .with_location(file!().to_string(), line!())
+                $(.with_metadata($key, $value))*
+        ).await
+    };
+}
+
+/// 使用全局默认 logger 记录 TRACE 级别日志
+///
+/// # 示例
+///
+/// ```ignore
+/// gtrace!("entering function");
+/// gtrace!("function call", "function" => "process_user", "user_id" => 12345);
+/// ```
+#[macro_export]
+macro_rules! gtrace {
+    ($msg:expr) => {
+        crate::log::trace(
+            crate::log::LogRecord::new(crate::log::LogLevel::Trace, $msg.into())
+                .with_location(file!().to_string(), line!())
+        ).await
+    };
+    ($msg:expr, $($key:expr => $value:expr),* $(,)?) => {
+        crate::log::trace(
             crate::log::LogRecord::new(crate::log::LogLevel::Trace, $msg.into())
                 .with_location(file!().to_string(), line!())
                 $(.with_metadata($key, $value))*

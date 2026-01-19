@@ -14,38 +14,33 @@
 //!
 //! ```rust,no_run
 //! use rustx::log::*;
-//! use rustx::cfg::TypeOptions;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<()> {
-//!     // 1. 注册所有组件
-//!     register_log_components()?;
-//!
-//!     // 2. 构建 LoggerConfig
-//!     let config = LoggerConfig {
-//!         level: "info".to_string(),
-//!         formatter: TypeOptions::from_json(r#"
-//!             {
-//!                 "type": "TextFormatter",
-//!                 "options": {
-//!                     "colored": false
+//!     // 使用 json5::from_str 构建 LoggerConfig
+//!     let config: LoggerConfig = json5::from_str(r#"
+//!         {
+//!             level: "info",
+//!             formatter: {
+//!                 type: "TextFormatter",
+//!                 options: {
+//!                     colored: false
+//!                 }
+//!             },
+//!             appender: {
+//!                 type: "ConsoleAppender",
+//!                 options: {
+//!                     target: "stdout",
+//!                     auto_flush: true
 //!                 }
 //!             }
-//!         "#)?,
-//!         appender: TypeOptions::from_json(r#"
-//!             {
-//!                 "type": "ConsoleAppender",
-//!                 "options": {
-//!                     "use_colors": true
-//!                 }
-//!             }
-//!         "#)?,
-//!     };
+//!         }
+//!     "#)?;
 //!
-//!     // 3. 创建 Logger
-//!     let logger = create_logger_from_config(config).await?;
+//!     // 创建Logger（组件会自动注册）
+//!     let logger = Logger::new(config)?;
 //!
-//!     // 4. 使用 Logger
+//!     // 使用Logger
 //!     logger.info("Application started".to_string()).await?;
 //!     logger.error("Connection failed".to_string()).await?;
 //!
@@ -55,22 +50,27 @@
 
 pub mod appender;
 pub mod formatter;
+pub mod global;
 pub mod level;
 pub mod logger;
 pub mod macros;
+pub mod manager;
 pub mod record;
-pub mod registry;
 
 // 重新导出核心类型
 pub use appender::LogAppender;
 pub use formatter::LogFormatter;
 pub use level::LogLevel;
 pub use logger::{Logger, LoggerConfig};
+pub use manager::{LoggerManager, LoggerManagerConfig};
+pub use global::{
+    global_logger_manager, get_logger, get_default_logger, add_logger, init_logger_manager,
+    // 默认 logger 的便捷 log 方法
+    log, logm, trace, debug, info, warn, error,
+    tracem, debugm, infom, warnm, errorm,
+};
 pub use record::{LogRecord, MetadataValue};
 
-// 重新导出注册函数
-pub use registry::{create_logger_from_config, register_log_components};
-
 // 重新导出子模块的注册函数
-pub use appender::{register_appenders, ConsoleAppender, ConsoleAppenderConfig, FileAppender, FileAppenderConfig};
+pub use appender::{register_appenders, ConsoleAppender, ConsoleAppenderConfig, FileAppender, FileAppenderConfig, Target};
 pub use formatter::{register_formatters, JsonFormatter, JsonFormatterConfig, TextFormatter, TextFormatterConfig};

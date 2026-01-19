@@ -7,6 +7,7 @@ use crossbeam::channel::unbounded;
 use notify::Watcher;
 use rayon::prelude::*;
 use serde::Deserialize;
+use smart_default::SmartDefault;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -26,31 +27,15 @@ pub enum FileEvent {
 }
 
 /// 文件监听器配置
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, SmartDefault)]
+#[serde(default)]
 pub struct FileWatcherConfig {
     /// 工作线程数（用于并行处理文件事件）
-    #[serde(default = "default_worker_threads")]
+    #[default = 1]
     pub worker_threads: usize,
     /// 事件防抖延迟（同一文件的多次修改只处理最后一次），单位：毫秒
-    #[serde(default = "default_debounce_delay_ms")]
+    #[default = 100]
     pub debounce_delay_ms: u64,
-}
-
-fn default_worker_threads() -> usize {
-    1
-}
-
-fn default_debounce_delay_ms() -> u64 {
-    100
-}
-
-impl Default for FileWatcherConfig {
-    fn default() -> Self {
-        Self {
-            worker_threads: default_worker_threads(),
-            debounce_delay_ms: default_debounce_delay_ms(),
-        }
-    }
 }
 
 impl FileWatcherConfig {

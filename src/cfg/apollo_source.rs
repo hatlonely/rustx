@@ -4,6 +4,7 @@
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use smart_default::SmartDefault;
 use std::thread;
 use std::time::Duration;
 
@@ -11,26 +12,19 @@ use super::source::{ConfigChange, ConfigSource, ConfigValue};
 use crate::{impl_from, impl_box_from};
 
 /// Apollo 配置中心源的配置
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, SmartDefault)]
+#[serde(default)]
 pub struct ApolloSourceConfig {
     /// Apollo 服务器地址，如 "http://localhost:8080"
     pub server_url: String,
     /// 应用 ID
     pub app_id: String,
     /// 命名空间，默认为 "application"
-    #[serde(default = "default_namespace")]
+    #[default = "application"]
     pub namespace: String,
     /// 集群名称，默认为 "default"
-    #[serde(default = "default_cluster")]
+    #[default = "default"]
     pub cluster: String,
-}
-
-fn default_namespace() -> String {
-    "application".to_string()
-}
-
-fn default_cluster() -> String {
-    "default".to_string()
 }
 
 /// Apollo 配置中心响应
@@ -531,5 +525,24 @@ mod tests {
         assert_eq!(source.app_id, "my-app");
         assert_eq!(source.namespace, "custom");
         assert_eq!(source.cluster, "prod");
+    }
+
+    #[test]
+    fn test_apollo_source_config_default_trait() {
+        // 测试 SmartDefault 自动实现的 Default trait
+        let config = ApolloSourceConfig::default();
+        assert_eq!(config.namespace, "application");
+        assert_eq!(config.cluster, "default");
+
+        // 测试使用 Default 的结构体更新语法
+        let config2 = ApolloSourceConfig {
+            server_url: "http://localhost:8080".to_string(),
+            app_id: "my-app".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(config2.server_url, "http://localhost:8080");
+        assert_eq!(config2.app_id, "my-app");
+        assert_eq!(config2.namespace, "application");
+        assert_eq!(config2.cluster, "default");
     }
 }

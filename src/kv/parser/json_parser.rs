@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use serde::de::Deserializer;
+use smart_default::SmartDefault;
 use std::marker::PhantomData;
 
 use super::{Parser, ParserError, ChangeType, ParseValue};
@@ -18,20 +19,17 @@ pub struct Condition {
 /// 变更类型规则（对应 Golang ChangeTypeRule）
 ///
 /// 定义一组条件，当条件满足时返回指定的变更类型。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, SmartDefault)]
+#[serde(default)]
 pub struct ChangeTypeRule {
     /// 条件列表
     pub conditions: Vec<Condition>,
     /// 逻辑关系：AND 或 OR（默认：AND）
-    #[serde(default = "default_logic")]
+    #[default = "AND"]
     pub logic: String,
     /// 满足条件时的变更类型
     #[serde(deserialize_with = "deserialize_change_type")]
     pub r#type: ChangeType,
-}
-
-fn default_logic() -> String {
-    "AND".to_string()
 }
 
 pub(crate) fn deserialize_change_type<'de, D>(deserializer: D) -> Result<ChangeType, D::Error>
@@ -66,27 +64,20 @@ where
 }
 
 /// JsonParser 配置（遵循 cfg/README.md 最佳实践）
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, SmartDefault)]
+#[serde(default)]
 pub struct JsonParserConfig {
     /// 用于生成 key 的字段路径列表（默认：["id"]）
-    #[serde(default = "default_key_fields")]
+    #[default(vec!["id".to_string()])]
     pub key_fields: Vec<String>,
 
     /// key 字段间的分隔符（默认："_"）
-    #[serde(default = "default_key_separator")]
+    #[default = "_"]
     pub key_separator: String,
 
     /// 变更类型规则列表（按顺序匹配）
     #[serde(default)]
     pub change_type_rules: Vec<ChangeTypeRule>,
-}
-
-fn default_key_fields() -> Vec<String> {
-    vec!["id".to_string()]
-}
-
-fn default_key_separator() -> String {
-    "_".to_string()
 }
 
 /// JSON 解析器（对应 Golang JsonParser[K, V]）

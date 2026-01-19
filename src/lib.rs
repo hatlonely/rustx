@@ -34,7 +34,6 @@ pub use kv::{
 };
 
 pub use log::{LogLevel, Logger, LoggerConfig, LogAppender, LogFormatter, LogRecord};
-pub use log::{create_logger_from_config, register_log_components};
 
 // 重新导出 ParseValue trait 和派生宏
 pub use kv::parser::ParseValue;

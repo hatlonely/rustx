@@ -32,7 +32,8 @@ mod tests {
             {
                 "type": "ConsoleAppender",
                 "options": {
-                    "use_colors": true
+                    "target": "stdout",
+                    "auto_flush": true
                 }
             }
         "#,

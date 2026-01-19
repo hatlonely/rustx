@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use smart_default::SmartDefault;
 use crate::cfg::{TypeOptions, create_trait_from_type_options};
 use crate::log::{
     appender::LogAppender,
@@ -7,26 +8,28 @@ use crate::log::{
     record::LogRecord,
 };
 use anyhow::Result;
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 use tokio::sync::RwLock;
 
 /// Logger 配置
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, SmartDefault)]
+#[serde(default)]
 pub struct LoggerConfig {
     /// 日志级别
-    #[serde(default = "default_log_level")]
+    #[default = "info"]
     pub level: String,
 
     /// Formatter 配置
+    #[default(TypeOptions { type_name: "TextFormatter".to_string(), options: serde_json::json!({}) })]
     pub formatter: TypeOptions,
 
     /// Appender 配置
+    #[default(TypeOptions { type_name: "ConsoleAppender".to_string(), options: serde_json::json!({}) })]
     pub appender: TypeOptions,
 }
 
-fn default_log_level() -> String {
-    "info".to_string()
-}
+/// 注册所有日志组件（只执行一次）
+static REGISTER_ONCE: Once = Once::new();
 
 /// 核心日志器
 ///
@@ -40,6 +43,12 @@ pub struct Logger {
 impl Logger {
     /// 从配置创建 Logger
     pub fn new(config: LoggerConfig) -> Result<Self> {
+        // 注册所有日志组件（只执行一次）
+        REGISTER_ONCE.call_once(|| {
+            let _ = crate::log::register_formatters();
+            let _ = crate::log::register_appenders();
+        });
+
         // 解析日志级别
         let level = config.level.parse::<LogLevel>().unwrap_or(LogLevel::Info);
 
@@ -243,24 +252,24 @@ impl From<LoggerConfig> for Logger {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::log::{TextFormatter, TextFormatterConfig, ConsoleAppender, ConsoleAppenderConfig};
 
     /// 辅助函数：为测试创建一个简单的 Logger
     fn create_test_logger(level: &str) -> Logger {
-        // 注册到类型系统
-        crate::cfg::register_trait::<TextFormatter, dyn LogFormatter, TextFormatterConfig>("TextFormatter").unwrap();
-        crate::cfg::register_trait::<ConsoleAppender, dyn LogAppender, ConsoleAppenderConfig>("ConsoleAppender").unwrap();
+        // 使用 json5::from_str 创建 config
+        let config_json = format!(r#"{{
+            level: "{}",
+            formatter: {{
+                type: "TextFormatter",
+                options: {{}}
+            }},
+            appender: {{
+                type: "ConsoleAppender",
+                options: {{}}
+            }}
+        }}"#, level);
 
-        // 创建 config
-        let config = LoggerConfig {
-            level: level.to_string(),
-            formatter: crate::cfg::TypeOptions::from_json(
-                r#"{"type":"TextFormatter","options":{}}"#
-            ).unwrap(),
-            appender: crate::cfg::TypeOptions::from_json(
-                r#"{"type":"ConsoleAppender","options":{}}"#
-            ).unwrap(),
-        };
+        let config: LoggerConfig = json5::from_str(&config_json)
+            .expect("Failed to parse LoggerConfig");
 
         Logger::new(config).unwrap()
     }
@@ -296,35 +305,27 @@ mod tests {
 
     #[tokio::test]
     async fn test_logger_from_config() -> Result<()> {
-        use crate::log::register_formatters;
-        use crate::log::register_appenders;
-
-        register_formatters()?;
-        register_appenders()?;
-
-        let config = LoggerConfig {
-            level: "debug".to_string(),
-            formatter: TypeOptions::from_json(
-                r#"
-                {
-                    "type": "TextFormatter",
-                    "options": {
-                        "colored": false
+        // 使用 json5::from_str 创建 config
+        let config: LoggerConfig = json5::from_str(
+            r#"
+            {
+                level: "debug",
+                formatter: {
+                    type: "TextFormatter",
+                    options: {
+                        colored: false
+                    }
+                },
+                appender: {
+                    type: "ConsoleAppender",
+                    options: {
+                        target: "stdout",
+                        auto_flush: true
                     }
                 }
-            "#,
-            )?,
-            appender: TypeOptions::from_json(
-                r#"
-                {
-                    "type": "ConsoleAppender",
-                    "options": {
-                        "use_colors": true
-                    }
-                }
-            "#,
-            )?,
-        };
+            }
+            "#
+        )?;
 
         let logger = Logger::new(config)?;
         assert_eq!(logger.get_level().await, LogLevel::Debug);

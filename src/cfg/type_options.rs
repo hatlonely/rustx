@@ -3,12 +3,15 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use smart_default::SmartDefault;
 
 /// 类型选项结构
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, SmartDefault)]
 pub struct TypeOptions {
     #[serde(rename = "type")]
+    #[default = ""]
     pub type_name: String,
+    #[default = "json!({})"]
     pub options: JsonValue,
 }
 

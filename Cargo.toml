@@ -37,6 +37,7 @@ num_cpus = "1.16"
 rustx-macros = { path = "macros" }
 colored = "2.1"
 chrono = "0.4"
+smart-default = "0.7"
 
 [build-dependencies]
 prost-build = "0.12"
