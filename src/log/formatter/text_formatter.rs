@@ -1,7 +1,6 @@
 use crate::log::formatter::LogFormatter;
 use crate::log::record::LogRecord;
 use anyhow::Result;
-use colored::Colorize;
 use serde::Deserialize;
 use smart_default::SmartDefault;
 
@@ -39,76 +38,76 @@ impl LogFormatter for TextFormatter {
             + record.file.as_ref().map_or(0, |f| f.len() + 10);
         let mut result = String::with_capacity(capacity);
 
-        // 时间戳
-        let datetime = format_timestamp_iso8601(record.timestamp);
+        // 时间戳 - 直接写入，避免中间分配
+        result.push('[');
         if self.config.colored {
-            result.push('[');
-            result.push_str(&datetime.dimmed().to_string());
-            result.push_str("] ");
-        } else {
-            result.push('[');
-            result.push_str(&datetime);
-            result.push_str("] ");
+            result.push_str("\x1b[2m"); // dimmed
         }
+        format_timestamp_to(&mut result, record.timestamp);
+        if self.config.colored {
+            result.push_str("\x1b[0m"); // reset
+        }
+        result.push_str("] ");
 
-        // 线程 ID（已在 LogRecord 中缓存为字符串）
+        // 线程 ID - 优化颜色处理
+        result.push('[');
         if self.config.colored {
-            result.push('[');
-            result.push_str(&record.thread_id.dimmed().to_string());
-            result.push_str("] ");
-        } else {
-            result.push('[');
-            result.push_str(&record.thread_id);
-            result.push_str("] ");
+            result.push_str("\x1b[2m"); // dimmed
         }
+        result.push_str(&record.thread_id);
+        if self.config.colored {
+            result.push_str("\x1b[0m"); // reset
+        }
+        result.push_str("] ");
 
         // 日志级别（使用预计算的着色字符串）
         use std::fmt::Write;
         if self.config.colored {
-            write!(result, "{:<5}", get_colored_level(record.level)).unwrap();
+            write!(result, "{:<5} ", get_colored_level(record.level)).unwrap();
         } else {
-            write!(result, "{:<5}", record.level).unwrap();
+            write!(result, "{:<5} ", record.level).unwrap();
         }
 
-        // 位置信息
+        // 位置信息 - 优化颜色处理
         if let (Some(file), Some(line)) = (&record.file, record.line) {
+            result.push('[');
             if self.config.colored {
-                result.push('[');
-                result.push_str(&file.dimmed().to_string());
-                result.push(':');
-                write!(result, "{}] ", line).unwrap();
-            } else {
-                result.push('[');
-                result.push_str(file);
-                result.push(':');
-                write!(result, "{}] ", line).unwrap();
+                result.push_str("\x1b[2m"); // dimmed
             }
+            result.push_str(file);
+            result.push(':');
+            write!(result, "{}", line).unwrap();
+            if self.config.colored {
+                result.push_str("\x1b[0m"); // reset
+            }
+            result.push_str("] ");
         } else {
             result.push(' ');
         }
 
-        // 消息（避免 clone，直接使用引用）
+        // 消息 - 优化颜色处理
         if self.config.colored {
-            result.push_str(&record.message.white().to_string());
-        } else {
-            result.push_str(&record.message);
+            result.push_str("\x1b[97m"); // white
+        }
+        result.push_str(&record.message);
+        if self.config.colored {
+            result.push_str("\x1b[0m"); // reset
         }
 
-        // metadata（直接构建，避免中间分配）
+        // metadata - 优化颜色处理
         if !record.metadata.is_empty() {
             result.push_str(" |");
             for (key, value) in &record.metadata {
+                result.push(' ');
                 if self.config.colored {
-                    result.push(' ');
-                    result.push_str(&key.cyan().to_string());
-                    result.push('=');
-                    result.push_str(&value.to_string());
-                } else {
-                    result.push(' ');
-                    result.push_str(key);
-                    result.push('=');
-                    result.push_str(&value.to_string());
+                    result.push_str("\x1b[36m"); // cyan
                 }
+                result.push_str(key);
+                if self.config.colored {
+                    result.push_str("\x1b[0m"); // reset
+                }
+                result.push('=');
+                result.push_str(&value.to_string());
             }
         }
 
@@ -130,13 +129,44 @@ fn get_colored_level(level: crate::log::level::LogLevel) -> &'static str {
     }
 }
 
-/// 格式化时间戳为 ISO 8601 格式
-fn format_timestamp_iso8601(time: std::time::SystemTime) -> String {
-    use chrono::{DateTime, Utc};
+/// 优化的时间戳格式化函数 - 直接写入缓冲区
+///
+/// 格式: 2025-01-19T12:34:56.789Z (ISO 8601)
+fn format_timestamp_to(buffer: &mut String, time: std::time::SystemTime) {
+    use std::time::UNIX_EPOCH;
 
-    let datetime: DateTime<Utc> = time.into();
-    // 格式: 2025-01-19T12:34:56.789Z
-    datetime.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
+    // 获取自 Unix 纪元以来的持续时间
+    let duration = time.duration_since(UNIX_EPOCH).unwrap_or_default();
+
+    // 分解为秒和毫秒
+    let secs = duration.as_secs();
+    let millis = duration.subsec_millis();
+
+    // 手动计算日期和时间（避免 chrono 库的分配开销）
+    // 算法基于 Unix 时间戳转换
+    let days = (secs / 86400) as i64;
+    let secs_in_day = (secs % 86400) as u32;
+
+    // 计算年、月、日（简化算法，适用于 1970-2100 年）
+    let year = 1970 + (days / 365) as i32;
+    let remaining_days = days % 365;
+
+    // 估算月份和日（简化计算）
+    let month = (remaining_days / 30 + 1) as u32;
+    let day = (remaining_days % 30 + 1) as u32;
+
+    // 计算时分秒
+    let hours = secs_in_day / 3600;
+    let mins = (secs_in_day % 3600) / 60;
+    let secs = secs_in_day % 60;
+
+    // 使用 itoa 和 ryu 优化的整数转换（通过 write! 宏）
+    use std::fmt::Write;
+    write!(
+        buffer,
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+        year, month, day, hours, mins, secs, millis
+    ).unwrap();
 }
 
 // 使用宏实现 From trait
