@@ -48,11 +48,8 @@ serial_test = "3.0"
 criterion = "0.5"
 
 [[bench]]
-name = "formatter_benchmark"
-harness = false
-
-[[bench]]
-name = "logger_benchmark"
+name = "text_formatter_benchmark"
+path = "benches/log/formatter/text_formatter_benchmark.rs"
 harness = false
 
 # Examples configuration

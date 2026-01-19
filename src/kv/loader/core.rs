@@ -34,13 +34,13 @@ pub enum LoaderError {
 }
 
 /// KV 数据流：用于遍历 KV 数据（对应 Golang KVStream[K, V] interface）
-pub trait KvStream<K, V>: Send + Sync {
+pub trait Stream<K, V>: Send + Sync {
     /// 遍历数据流中的每个元素（对应 Golang Each 方法）
     fn each(&self, callback: &dyn Fn(ChangeType, K, V) -> Result<(), LoaderError>) -> Result<(), LoaderError>;
 }
 
 /// 监听器：处理 KV 数据变更的回调（对应 Golang Listener[K, V]）
-pub type Listener<K, V> = Arc<dyn Fn(Arc<dyn KvStream<K, V>>) -> Result<(), LoaderError> + Send + Sync>;
+pub type Listener<K, V> = Arc<dyn Fn(Arc<dyn Stream<K, V>>) -> Result<(), LoaderError> + Send + Sync>;
 
 /// 核心加载器 trait（对应 Golang Loader[K, V] interface）
 pub trait Loader<K, V>: Send + Sync {

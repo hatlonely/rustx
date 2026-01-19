@@ -9,7 +9,7 @@ pub mod store;
 
 // 重新导出核心接口
 pub use loader::{
-    KvStream, Listener, Loader, LoaderError, LOAD_STRATEGY_INPLACE, LOAD_STRATEGY_REPLACE,
+    Stream, Listener, Loader, LoaderError, LOAD_STRATEGY_INPLACE, LOAD_STRATEGY_REPLACE,
 };
 pub use parser::{ChangeType, Parser, ParserError};
 pub use serializer::{Serializer, SerializerError};

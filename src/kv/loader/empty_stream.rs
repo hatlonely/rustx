@@ -1,14 +1,14 @@
-use crate::kv::loader::core::{KvStream, LoaderError};
+use crate::kv::loader::core::{Stream, LoaderError};
 use crate::kv::parser::ChangeType;
 
 /// 空 KV 数据流：不包含任何数据，用于 FileTrigger 等场景
 ///
 /// 对应 Golang 的 EmptyKVStream[K, V]
-pub struct EmptyKvStream<K, V> {
+pub struct EmptyStream<K, V> {
     _phantom: std::marker::PhantomData<(K, V)>,
 }
 
-impl<K, V> EmptyKvStream<K, V> {
+impl<K, V> EmptyStream<K, V> {
     /// 创建新的空数据流
     pub fn new() -> Self {
         Self {
@@ -17,13 +17,13 @@ impl<K, V> EmptyKvStream<K, V> {
     }
 }
 
-impl<K, V> Default for EmptyKvStream<K, V> {
+impl<K, V> Default for EmptyStream<K, V> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<K, V> KvStream<K, V> for EmptyKvStream<K, V>
+impl<K, V> Stream<K, V> for EmptyStream<K, V>
 where
     K: Clone + Send + Sync,
     V: Clone + Send + Sync,
@@ -41,7 +41,7 @@ mod tests {
 
     #[test]
     fn test_empty_kv_stream() {
-        let stream = EmptyKvStream::<String, String>::new();
+        let stream = EmptyStream::<String, String>::new();
 
         // 测试 each 不调用 callback
         let call_count = std::sync::Arc::new(std::sync::Mutex::new(0));
@@ -59,7 +59,7 @@ mod tests {
 
     #[test]
     fn test_empty_kv_stream_default() {
-        let stream = EmptyKvStream::<String, i32>::default();
+        let stream = EmptyStream::<String, i32>::default();
 
         // 即使 callback 会返回错误，空流也不会调用它
         let result = stream.each(&|_change_type, _key, _value| {
@@ -71,7 +71,7 @@ mod tests {
 
     #[test]
     fn test_empty_kv_stream_cloned() {
-        let stream1 = EmptyKvStream::<String, String>::new();
+        let stream1 = EmptyStream::<String, String>::new();
         let stream2 = stream1; // 应该可以移动
 
         // 测试新的实例也可以工作

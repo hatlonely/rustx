@@ -46,7 +46,7 @@ where
     /// 触发通知（内部方法）
     fn trigger(&self, listener: &Listener<K, V>) {
         // 创建空数据流
-        let stream = Arc::new(super::empty_kv_stream::EmptyKvStream::new());
+        let stream = Arc::new(super::empty_stream::EmptyStream::new());
 
         if let Err(e) = listener(stream) {
             log::error!("listener failed: {}", e);
@@ -83,7 +83,7 @@ where
                 FileEvent::Created(_) | FileEvent::Modified(_) => {
                     log::debug!("file changed: {}", file_path_for_log);
                     // 变化时触发通知（不加载任何数据）
-                    let stream = Arc::new(super::empty_kv_stream::EmptyKvStream::new());
+                    let stream = Arc::new(super::empty_stream::EmptyStream::new());
 
                     if let Err(e) = listener_clone(stream) {
                         log::error!("listener failed: {}", e);

@@ -29,7 +29,7 @@ pub use cfg::{create_from_type_options, register, register_auto, TypeOptions};
 pub use fs::{FileEvent, FileWatcher};
 
 pub use kv::{
-    ChangeType, KvError, KvStream, Listener, Loader, LoaderError, Parser, ParserError, Serializer,
+    ChangeType, KvError, Stream, Listener, Loader, LoaderError, Parser, ParserError, Serializer,
     SerializerError, SetOptions, Store, LOAD_STRATEGY_INPLACE, LOAD_STRATEGY_REPLACE,
 };
 

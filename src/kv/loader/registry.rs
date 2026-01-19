@@ -102,7 +102,7 @@ mod tests {
         let call_count_clone = call_count.clone();
         let results_clone = results.clone();
 
-        let listener: Listener<String, String> = Arc::new(move |stream: Arc<dyn crate::kv::loader::KvStream<_, _>>| {
+        let listener: Listener<String, String> = Arc::new(move |stream: Arc<dyn crate::kv::loader::Stream<_, _>>| {
             let mut count = call_count_clone.lock().unwrap();
             *count += 1;
             drop(count);
@@ -151,7 +151,7 @@ mod tests {
 
         let call_count_clone = call_count.clone();
 
-        let listener: Listener<String, String> = Arc::new(move |stream: Arc<dyn crate::kv::loader::KvStream<_, _>>| {
+        let listener: Listener<String, String> = Arc::new(move |stream: Arc<dyn crate::kv::loader::Stream<_, _>>| {
             let mut count = call_count_clone.lock().unwrap();
             *count += 1;
             drop(count);

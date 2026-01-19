@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::kv::loader::core::{KvStream, LoaderError};
+use crate::kv::loader::core::{Stream, LoaderError};
 use crate::kv::parser::{ChangeType, Parser};
 
 /// KV 文件数据流：从文件中逐行读取 KV 数据并解析
@@ -48,7 +48,7 @@ where
     }
 }
 
-impl<K, V> KvStream<K, V> for KvFileStream<K, V>
+impl<K, V> Stream<K, V> for KvFileStream<K, V>
 where
     K: Clone + Send + Sync,
     V: Clone + Send + Sync,
