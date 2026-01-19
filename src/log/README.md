@@ -219,3 +219,48 @@ async fn main() -> anyhow::Result<()> {
 - 自动创建父目录
 - 追加模式写入（不会覆盖已有日志）
 - 每条日志后自动换行
+
+### RollingFileAppender - 滚动文件输出器
+
+支持按时间/大小切分日志文件，并自动清理旧日志。
+
+```json5
+{
+    "type": "RollingFileAppender",
+    "options": {
+        // 日志文件路径，可选，默认 "/var/log/app.log"
+        "file_path": "/var/log/app.log",
+
+        // 单个文件最大大小（字节），可选，默认 null（不按大小切分）
+        "max_size": 104857600,
+
+        // 时间切分策略，可选，默认 "hourly"
+        // "minutely": 按分钟切分
+        // "hourly": 按小时切分
+        // "daily": 按天切分
+        // null: 不按时间切分
+        "time_policy": "hourly",
+
+        // 保留的最大文件数量，可选，默认 null（不按数量清理）
+        "max_files": 48,
+
+        // 最大保留时间（小时），可选，默认 null（不按时间清理）
+        "max_hours": 72,
+
+        // 是否压缩旧日志文件，可选，默认 false
+        "compress": false
+    }
+}
+```
+
+**文件命名示例：**
+- 按时间切分：`app.2025-01-19-10.log`, `app.2025-01-19-11.log`
+- 按大小切分：`app.log`, `app.log.1`, `app.log.2.gz`
+- 组合切分：`app.2025-01-19-10.log`, `app.2025-01-19-10.log.1.gz`
+
+**特性：**
+- 自动创建父目录
+- 支持按时间/大小切分，或两者组合
+- 自动清理旧日志（通过 `max_files` 或 `max_hours` 配置）
+- 支持压缩旧日志文件
+- 线程安全
