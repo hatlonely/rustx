@@ -67,7 +67,7 @@ impl TimePolicy {
 pub struct RollingFileAppenderConfig {
     // ========== 基本信息 ==========
     /// 日志文件路径
-    #[default("/var/log/app.log".to_string())]
+    #[default("app.log".to_string())]
     pub file_path: String,
 
     // ========== 切分策略 ==========

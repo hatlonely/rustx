@@ -9,10 +9,14 @@
 ```rust
 use rustx::cfg::{ConfigSource, FileSource, FileSourceConfig, ConfigValue};
 use serde::Deserialize;
+use smart_default::SmartDefault;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, SmartDefault)]
+#[serde(default)]
 struct DatabaseConfig {
+    #[default = "localhost"]
     host: String,
+    #[default = 3306]
     port: u16,
 }
 
@@ -66,13 +70,19 @@ let config: DatabaseConfig = source.load("database")?.into_type()?;
 ```rust
 use rustx::cfg::{register, TypeOptions, create_from_type_options};
 use serde::Deserialize;
+use smart_default::SmartDefault;
 
 // 1. 定义配置结构体
-#[derive(Deserialize)]
+#[derive(Deserialize, SmartDefault)]
+#[serde(default)]
 struct DatabaseConfig {
+    #[default = "localhost"]
     host: String,
+    #[default = 3306]
     port: u16,
+    #[default = "root"]
     username: String,
+    #[default = ""]
     password: String,
 }
 
@@ -130,6 +140,7 @@ let db = create_from_type_options(&type_options)?
 ```rust
 use rustx::cfg::{register_trait, TypeOptions, create_trait_from_type_options};
 use serde::Deserialize;
+use smart_default::SmartDefault;
 
 // 定义 trait
 trait Cache: Send + Sync {
@@ -138,10 +149,14 @@ trait Cache: Send + Sync {
 }
 
 // 配置结构体
-#[derive(Deserialize)]
+#[derive(Deserialize, SmartDefault)]
+#[serde(default)]
 struct RedisCacheConfig {
+    #[default = "localhost"]
     host: String,
+    #[default = 6379]
     port: u16,
+    #[default = 0]
     db: u8,
 }
 
@@ -206,6 +221,10 @@ let cache: Box<dyn Cache> = create_trait_from_type_options(&TypeOptions {
 - **Config 命名规范**：严格遵循"原类名 + Config"后缀，如 `Database` -> `DatabaseConfig`、`RedisCache` -> `RedisCacheConfig`
 - **注册名称规范**：注册的类型名称必须严格与类名保持一致，如 `register::<Database, DatabaseConfig>("Database")`
 - 配置结构体使用 `serde::Deserialize` 进行自动反序列化
+- **使用 SmartDefault 设置默认值**：配置结构体应使用 `#[derive(SmartDefault)]` 并配合 `#[serde(default)]`，为常用配置项设置合理的默认值
+  - 字符串字段：`#[default = "value"]`
+  - 数值字段：`#[default = value]`
+  - 使用 `Default::default()` 或结构体更新语法 `..Default::default()` 构建部分配置
 - 通过 `register`/`register_trait` 注册到类型系统
 - 使用 `create_from_type_options`/`create_trait_from_type_options` 进行动态创建
 - **构造方法返回值**：`new` 方法可以返回 `Self` 或 `Result<Self, Error>`，根据是否需要错误处理选择

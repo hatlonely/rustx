@@ -3,25 +3,15 @@ use crate::log::record::LogRecord;
 use anyhow::Result;
 use colored::Colorize;
 use serde::Deserialize;
+use smart_default::SmartDefault;
 
 /// TextFormatter 配置
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, SmartDefault)]
+#[serde(default)]
 pub struct TextFormatterConfig {
     /// 是否启用颜色输出
-    #[serde(default = "default_colored")]
+    #[default = false]
     pub colored: bool,
-}
-
-fn default_colored() -> bool {
-    false
-}
-
-impl Default for TextFormatterConfig {
-    fn default() -> Self {
-        Self {
-            colored: false,
-        }
-    }
 }
 
 /// 文本格式化器

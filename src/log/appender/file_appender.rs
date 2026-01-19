@@ -1,14 +1,16 @@
 use crate::log::appender::LogAppender;
 use anyhow::Result;
 use serde::Deserialize;
+use smart_default::SmartDefault;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// FileAppender 配置
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, SmartDefault)]
 pub struct FileAppenderConfig {
     /// 日志文件路径
+    #[default = "app.log"]
     pub file_path: String,
 }
 

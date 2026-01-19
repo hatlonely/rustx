@@ -2,27 +2,21 @@ use crate::log::formatter::LogFormatter;
 use crate::log::record::LogRecord;
 use anyhow::Result;
 use serde::Deserialize;
+use smart_default::SmartDefault;
 
 /// JsonFormatter 配置（保留扩展性）
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, SmartDefault)]
+#[serde(default)]
 pub struct JsonFormatterConfig {}
-
-impl Default for JsonFormatterConfig {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 /// JSON 格式化器
 ///
 /// 将日志记录格式化为 JSON 格式
-pub struct JsonFormatter {
-    config: JsonFormatterConfig,
-}
+pub struct JsonFormatter {}
 
 impl JsonFormatter {
-    pub fn new(config: JsonFormatterConfig) -> Self {
-        Self { config }
+    pub fn new(_: JsonFormatterConfig) -> Self {
+        Self {  }
     }
 }
 
@@ -125,8 +119,6 @@ mod tests {
     #[test]
     fn test_json_formatter_from_config() {
         let config = JsonFormatterConfig::default();
-        let formatter = JsonFormatter::from(config);
-        // 只验证构造成功
-        assert_eq!(formatter.config, JsonFormatterConfig {});
+        let _ = JsonFormatter::from(config);
     }
 }
