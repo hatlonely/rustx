@@ -32,17 +32,17 @@
 #[macro_export]
 macro_rules! info {
     ($logger:expr, $msg:expr) => {
-        $logger.log(
-            crate::log::LogRecord::new(crate::log::LogLevel::Info, $msg.into())
+        let _ = $logger.log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Info, $msg.into())
                 .with_location(file!().to_string(), line!())
-        ).await
+        ).await;
     };
     ($logger:expr, $msg:expr, $($key:expr => $value:expr),* $(,)?) => {
-        $logger.log(
-            crate::log::LogRecord::new(crate::log::LogLevel::Info, $msg.into())
+        let _ = $logger.log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Info, $msg.into())
                 .with_location(file!().to_string(), line!())
                 $(.with_metadata($key, $value))*
-        ).await
+        ).await;
     };
 }
 
@@ -57,17 +57,17 @@ macro_rules! info {
 #[macro_export]
 macro_rules! debug {
     ($logger:expr, $msg:expr) => {
-        $logger.log(
-            crate::log::LogRecord::new(crate::log::LogLevel::Debug, $msg.into())
+        let _ = $logger.log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Debug, $msg.into())
                 .with_location(file!().to_string(), line!())
-        ).await
+        ).await;
     };
     ($logger:expr, $msg:expr, $($key:expr => $value:expr),* $(,)?) => {
-        $logger.log(
-            crate::log::LogRecord::new(crate::log::LogLevel::Debug, $msg.into())
+        let _ = $logger.log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Debug, $msg.into())
                 .with_location(file!().to_string(), line!())
                 $(.with_metadata($key, $value))*
-        ).await
+        ).await;
     };
 }
 
@@ -82,17 +82,17 @@ macro_rules! debug {
 #[macro_export]
 macro_rules! warn {
     ($logger:expr, $msg:expr) => {
-        $logger.log(
-            crate::log::LogRecord::new(crate::log::LogLevel::Warn, $msg.into())
+        let _ = $logger.log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Warn, $msg.into())
                 .with_location(file!().to_string(), line!())
-        ).await
+        ).await;
     };
     ($logger:expr, $msg:expr, $($key:expr => $value:expr),* $(,)?) => {
-        $logger.log(
-            crate::log::LogRecord::new(crate::log::LogLevel::Warn, $msg.into())
+        let _ = $logger.log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Warn, $msg.into())
                 .with_location(file!().to_string(), line!())
                 $(.with_metadata($key, $value))*
-        ).await
+        ).await;
     };
 }
 
@@ -107,17 +107,17 @@ macro_rules! warn {
 #[macro_export]
 macro_rules! error {
     ($logger:expr, $msg:expr) => {
-        $logger.log(
-            crate::log::LogRecord::new(crate::log::LogLevel::Error, $msg.into())
+        let _ = $logger.log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Error, $msg.into())
                 .with_location(file!().to_string(), line!())
-        ).await
+        ).await;
     };
     ($logger:expr, $msg:expr, $($key:expr => $value:expr),* $(,)?) => {
-        $logger.log(
-            crate::log::LogRecord::new(crate::log::LogLevel::Error, $msg.into())
+        let _ = $logger.log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Error, $msg.into())
                 .with_location(file!().to_string(), line!())
                 $(.with_metadata($key, $value))*
-        ).await
+        ).await;
     };
 }
 
@@ -132,17 +132,17 @@ macro_rules! error {
 #[macro_export]
 macro_rules! trace {
     ($logger:expr, $msg:expr) => {
-        $logger.log(
-            crate::log::LogRecord::new(crate::log::LogLevel::Trace, $msg.into())
+        let _ = $logger.log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Trace, $msg.into())
                 .with_location(file!().to_string(), line!())
-        ).await
+        ).await;
     };
     ($logger:expr, $msg:expr, $($key:expr => $value:expr),* $(,)?) => {
-        $logger.log(
-            crate::log::LogRecord::new(crate::log::LogLevel::Trace, $msg.into())
+        let _ = $logger.log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Trace, $msg.into())
                 .with_location(file!().to_string(), line!())
                 $(.with_metadata($key, $value))*
-        ).await
+        ).await;
     };
 }
 
@@ -178,17 +178,17 @@ macro_rules! trace {
 #[macro_export]
 macro_rules! ginfo {
     ($msg:expr) => {
-        crate::log::info(
-            crate::log::LogRecord::new(crate::log::LogLevel::Info, $msg.into())
+        let _ = $crate::log::log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Info, $msg.into())
                 .with_location(file!().to_string(), line!())
-        ).await
+        ).await;
     };
     ($msg:expr, $($key:expr => $value:expr),* $(,)?) => {
-        crate::log::info(
-            crate::log::LogRecord::new(crate::log::LogLevel::Info, $msg.into())
+        let _ = $crate::log::log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Info, $msg.into())
                 .with_location(file!().to_string(), line!())
                 $(.with_metadata($key, $value))*
-        ).await
+        ).await;
     };
 }
 
@@ -203,17 +203,17 @@ macro_rules! ginfo {
 #[macro_export]
 macro_rules! gdebug {
     ($msg:expr) => {
-        crate::log::debug(
-            crate::log::LogRecord::new(crate::log::LogLevel::Debug, $msg.into())
+        let _ = $crate::log::log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Debug, $msg.into())
                 .with_location(file!().to_string(), line!())
-        ).await
+        ).await;
     };
     ($msg:expr, $($key:expr => $value:expr),* $(,)?) => {
-        crate::log::debug(
-            crate::log::LogRecord::new(crate::log::LogLevel::Debug, $msg.into())
+        let _ = $crate::log::log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Debug, $msg.into())
                 .with_location(file!().to_string(), line!())
                 $(.with_metadata($key, $value))*
-        ).await
+        ).await;
     };
 }
 
@@ -228,17 +228,17 @@ macro_rules! gdebug {
 #[macro_export]
 macro_rules! gwarn {
     ($msg:expr) => {
-        crate::log::warn(
-            crate::log::LogRecord::new(crate::log::LogLevel::Warn, $msg.into())
+        let _ = $crate::log::log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Warn, $msg.into())
                 .with_location(file!().to_string(), line!())
-        ).await
+        ).await;
     };
     ($msg:expr, $($key:expr => $value:expr),* $(,)?) => {
-        crate::log::warn(
-            crate::log::LogRecord::new(crate::log::LogLevel::Warn, $msg.into())
+        let _ = $crate::log::log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Warn, $msg.into())
                 .with_location(file!().to_string(), line!())
                 $(.with_metadata($key, $value))*
-        ).await
+        ).await;
     };
 }
 
@@ -253,17 +253,17 @@ macro_rules! gwarn {
 #[macro_export]
 macro_rules! gerror {
     ($msg:expr) => {
-        crate::log::error(
-            crate::log::LogRecord::new(crate::log::LogLevel::Error, $msg.into())
+        let _ = $crate::log::log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Error, $msg.into())
                 .with_location(file!().to_string(), line!())
-        ).await
+        ).await;
     };
     ($msg:expr, $($key:expr => $value:expr),* $(,)?) => {
-        crate::log::error(
-            crate::log::LogRecord::new(crate::log::LogLevel::Error, $msg.into())
+        let _ = $crate::log::log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Error, $msg.into())
                 .with_location(file!().to_string(), line!())
                 $(.with_metadata($key, $value))*
-        ).await
+        ).await;
     };
 }
 
@@ -278,17 +278,17 @@ macro_rules! gerror {
 #[macro_export]
 macro_rules! gtrace {
     ($msg:expr) => {
-        crate::log::trace(
-            crate::log::LogRecord::new(crate::log::LogLevel::Trace, $msg.into())
+        let _ = $crate::log::log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Trace, $msg.into())
                 .with_location(file!().to_string(), line!())
-        ).await
+        ).await;
     };
     ($msg:expr, $($key:expr => $value:expr),* $(,)?) => {
-        crate::log::trace(
-            crate::log::LogRecord::new(crate::log::LogLevel::Trace, $msg.into())
+        let _ = $crate::log::log(
+            $crate::log::LogRecord::new($crate::log::LogLevel::Trace, $msg.into())
                 .with_location(file!().to_string(), line!())
                 $(.with_metadata($key, $value))*
-        ).await
+        ).await;
     };
 }
 

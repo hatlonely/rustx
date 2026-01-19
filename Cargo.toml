@@ -103,9 +103,9 @@ name = "fs_file_watcher_usage"
 path = "examples/fs/file_watcher_usage.rs"
 
 [[example]]
-name = "log_basic_usage"
-path = "examples/log/basic_usage.rs"
+name = "log_global_default_logger"
+path = "examples/log/global_default_logger.rs"
 
 [[example]]
-name = "log_file_appender_usage"
-path = "examples/log/file_appender_usage.rs"
+name = "log_global_init_logger"
+path = "examples/log/global_init_logger.rs"

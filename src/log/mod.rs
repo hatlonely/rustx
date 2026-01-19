@@ -63,12 +63,16 @@ pub use formatter::LogFormatter;
 pub use level::LogLevel;
 pub use logger::{Logger, LoggerConfig};
 pub use manager::{LoggerManager, LoggerManagerConfig};
+
 pub use global::{
     global_logger_manager, get_logger, get_default_logger, add_logger, init_logger_manager,
     // 默认 logger 的便捷 log 方法
     log, logm, trace, debug, info, warn, error,
     tracem, debugm, infom, warnm, errorm,
 };
+
+// 重新导出宏（宏通过 #[macro_export] 在 crate root 定义，这里重新导入以方便使用）
+// 注意：info, debug, warn, error, trace 宏需要从 crate root 导入
 pub use record::{LogRecord, MetadataValue};
 
 // 重新导出子模块的注册函数
