@@ -30,7 +30,88 @@ let config: DatabaseConfig = source.load("database")?.into_type()?;
 println!("数据库: {}:{}", config.host, config.port);
 ```
 
-### 2. 监听配置变化
+### 2. 自动创建与热更新
+
+```rust
+use rustx::cfg::{ConfigReloader, Configurable, FileSource, FileSourceConfig};
+use serde::Deserialize;
+
+#[derive(Deserialize, Clone)]
+struct DatabaseConfig {
+    host: String,
+    port: u16,
+}
+
+struct DatabaseService {
+    config: DatabaseConfig,
+}
+
+impl DatabaseService {
+    fn connection_info(&self) -> String {
+        format!("{}:{}", self.config.host, self.config.port)
+    }
+}
+
+// 从配置创建
+impl From<DatabaseConfig> for DatabaseService {
+    fn from(config: DatabaseConfig) -> Self {
+        Self { config }
+    }
+}
+
+// 实现热更新
+impl ConfigReloader<DatabaseConfig> for DatabaseService {
+    fn reload_config(&mut self, config: DatabaseConfig) -> anyhow::Result<()> {
+        self.config = config;
+        Ok(())
+    }
+}
+
+let source = FileSource::new(FileSourceConfig {
+    base_path: "config".to_string(),
+});
+
+// 一次性创建
+let service: DatabaseService = source.create::<DatabaseService, DatabaseConfig>("database")?;
+
+// 创建并自动监听配置变化
+let service = source.create_with_watch::<DatabaseService, DatabaseConfig>("database")?;
+// 修改 config/database.json 后自动调用 reload_config
+```
+
+**Trait Object 热更新**：通过配置的 `type` 字段动态选择实现
+
+```rust
+use rustx::cfg::{ConfigReloader, Configurable, FileSource, FileSourceConfig, register_trait};
+use serde::Deserialize;
+
+// 定义 trait
+trait Cache: Send + Sync {
+    fn get(&self, key: &str) -> Option<String>;
+}
+
+// Redis 实现
+#[derive(Deserialize, Clone)]
+struct RedisConfig { host: String, port: u16 }
+
+struct RedisCache { config: RedisConfig }
+
+impl From<RedisConfig> for RedisCache { fn from(config: RedisConfig) -> Self { Self { config } } }
+impl ConfigReloader<RedisConfig> for RedisCache {
+    fn reload_config(&mut self, config: RedisConfig) -> anyhow::Result<()> { self.config = config; Ok(()) }
+}
+impl Cache for RedisCache { fn get(&self, key: &str) -> Option<String> { None } }
+impl From<Box<RedisCache>> for Box<dyn Cache> { fn from(c: Box<RedisCache>) -> Self { c as _ } }
+
+// 注册实现
+register_trait::<RedisCache, dyn Cache, RedisConfig>("redis")?;
+
+// 配置文件 cache.json: { "type": "redis", "options": {...} }
+let cache: Arc<RwLock<Box<dyn Cache>>> = source.create_trait_with_watch::<dyn Cache, RedisConfig>("cache")?;
+// 修改 type 字段可切换不同实现
+```
+
+### 3. 监听配置变化
 
 ```rust
 use rustx::cfg::{ConfigChange, ConfigSource, FileSource, FileSourceConfig};
@@ -50,7 +131,7 @@ source.watch("database", Box::new(|change| {
 }))?;
 ```
 
-### 3. Apollo 配置中心
+### 4. Apollo 配置中心
 
 ```rust
 use rustx::cfg::{ApolloSource, ApolloSourceConfig, ConfigSource};
@@ -65,7 +146,7 @@ let source = ApolloSource::new(ApolloSourceConfig {
 let config: DatabaseConfig = source.load("database")?.into_type()?;
 ```
 
-### 4. 类型注册系统
+### 5. 类型注册系统
 
 ```rust
 use rustx::cfg::{register, TypeOptions, create_from_type_options};
@@ -135,7 +216,7 @@ let db = create_from_type_options(&type_options)?
     .unwrap();
 ```
 
-### 5. Trait 注册
+### 6. Trait 注册
 
 ```rust
 use rustx::cfg::{register_trait, TypeOptions, create_trait_from_type_options};
