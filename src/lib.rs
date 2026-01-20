@@ -8,6 +8,7 @@
 //! - **kv**: 键值存储抽象模块（对应 Golang kv 包）
 //! - **fs**: 文件系统操作模块（对应 Golang fs 包）
 //! - **log**: 日志模块（支持多种格式和输出方式）
+//! - **oss**: 对象存储模块（支持 S3、阿里云 OSS、GCP GCS）
 //!
 //! ## 设计理念
 //!
@@ -21,6 +22,7 @@ pub mod cfg;
 pub mod fs;
 pub mod kv;
 pub mod log;
+pub mod oss;
 pub mod proto;
 
 // 重新导出主要的公共 API
@@ -34,6 +36,12 @@ pub use kv::{
 };
 
 pub use log::{LogLevel, Logger, LoggerConfig, LogAppender, LogFormatter, LogRecord};
+
+pub use oss::{ObjectStore, ObjectStoreError, ObjectMeta, PutOptions};
+pub use oss::{S3ObjectStore, S3ObjectStoreConfig};
+pub use oss::{AliyunOssObjectStore, AliyunOssObjectStoreConfig};
+pub use oss::{GcpGcsObjectStore, GcpGcsObjectStoreConfig};
+pub use oss::register_object_store;
 
 // 重新导出 ParseValue trait 和派生宏
 pub use kv::parser::ParseValue;

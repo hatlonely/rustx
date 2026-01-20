@@ -39,6 +39,21 @@ colored = "2.1"
 chrono = "0.4"
 smart-default = "0.7"
 flate2 = "1.0"
+garde = { version = "0.20", features = ["derive"] }
+
+# Object Storage dependencies
+aws-sdk-s3 = "1.0"
+aws-config = "1.0"
+aws-credential-types = "1.0"
+# 阿里云 OSS SDK (启用 async feature)
+aliyun-oss-rust-sdk = { version = "0.2", features = ["async"] }
+urlencoding = "2.1"
+# GCP Cloud Storage
+google-cloud-storage = "0.6"
+google-cloud-auth = "0.6"
+futures = "0.3"
+quick-xml = { version = "0.31", features = ["serialize"] }
+glob = "0.3"
 
 [build-dependencies]
 prost-build = "0.12"
