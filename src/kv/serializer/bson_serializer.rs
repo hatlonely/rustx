@@ -1,5 +1,4 @@
 use crate::kv::serializer::core::{Serializer, SerializerError};
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 
@@ -32,12 +31,11 @@ impl<T> BsonSerializer<T> {
     }
 }
 
-#[async_trait]
 impl<T> Serializer<T, Vec<u8>> for BsonSerializer<T>
 where
     T: Serialize + for<'de> Deserialize<'de> + Send + Sync,
 {
-    async fn serialize(&self, from: T) -> Result<Vec<u8>, SerializerError> {
+    fn serialize(&self, from: T) -> Result<Vec<u8>, SerializerError> {
         // 首先将对象序列化为 BSON Document
         let doc = bson::to_document(&from)
             .map_err(|e| SerializerError::SerializationFailed(e.to_string()))?;
@@ -50,7 +48,7 @@ where
         Ok(buf)
     }
 
-    async fn deserialize(&self, to: Vec<u8>) -> Result<T, SerializerError> {
+    fn deserialize(&self, to: Vec<u8>) -> Result<T, SerializerError> {
         // 首先从字节数组反序列化为 BSON Document
         let doc = bson::Document::from_reader(&*to)
             .map_err(|e| SerializerError::DeserializationFailed(e.to_string()))?;
@@ -88,8 +86,8 @@ mod tests {
         active: bool,
     }
 
-    #[tokio::test]
-    async fn test_bson_serializer() {
+    #[test]
+    fn test_bson_serializer() {
         let config = BsonSerializerConfig::default();
         let serializer = BsonSerializer::new(config);
 
@@ -100,16 +98,16 @@ mod tests {
         };
 
         // 序列化
-        let bytes = serializer.serialize(data.clone()).await.unwrap();
+        let bytes = serializer.serialize(data.clone()).unwrap();
 
         // 反序列化
-        let deserialized: TestData = serializer.deserialize(bytes).await.unwrap();
+        let deserialized: TestData = serializer.deserialize(bytes).unwrap();
 
         assert_eq!(data, deserialized);
     }
 
-    #[tokio::test]
-    async fn test_bson_serializer_with_custom_config() {
+    #[test]
+    fn test_bson_serializer_with_custom_config() {
         let config = BsonSerializerConfig {};
         let serializer = BsonSerializer::new(config);
 
@@ -120,10 +118,10 @@ mod tests {
         };
 
         // 序列化
-        let bytes = serializer.serialize(data.clone()).await.unwrap();
+        let bytes = serializer.serialize(data.clone()).unwrap();
 
         // 反序列化
-        let deserialized: TestData = serializer.deserialize(bytes).await.unwrap();
+        let deserialized: TestData = serializer.deserialize(bytes).unwrap();
 
         assert_eq!(data, deserialized);
     }

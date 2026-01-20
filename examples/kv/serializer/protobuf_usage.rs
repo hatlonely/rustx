@@ -3,8 +3,7 @@ use rustx::cfg::{create_trait_from_type_options, TypeOptions};
 use rustx::kv::serializer::{register_protobuf_serializers, Serializer};
 use rustx::proto::{Order, Product, User};
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     println!("=== Protobuf 序列化器使用示例 ===");
 
     // 注册 protobuf 序列化器
@@ -14,21 +13,21 @@ async fn main() -> Result<()> {
 
     // 1. 测试用户消息序列化
     println!("\n1. 用户消息序列化测试");
-    test_user_serialization().await?;
+    test_user_serialization()?;
 
     // 2. 测试产品消息序列化
     println!("\n2. 产品消息序列化测试");
-    test_product_serialization().await?;
+    test_product_serialization()?;
 
     // 3. 测试嵌套消息序列化
     println!("\n3. 嵌套消息（订单）序列化测试");
-    test_order_serialization().await?;
+    test_order_serialization()?;
 
     println!("\n=== 示例完成 ===");
     Ok(())
 }
 
-async fn test_user_serialization() -> Result<()> {
+fn test_user_serialization() -> Result<()> {
     // 通过配置创建序列化器
     let opts = TypeOptions::from_json(
         r#"{
@@ -49,11 +48,11 @@ async fn test_user_serialization() -> Result<()> {
     println!("原始用户数据: {:?}", user);
 
     // 序列化
-    let bytes = serializer.serialize(user.clone()).await?;
+    let bytes = serializer.serialize(user.clone())?;
     println!("序列化后字节长度: {}", bytes.len());
 
     // 反序列化
-    let deserialized: User = serializer.deserialize(bytes).await?;
+    let deserialized: User = serializer.deserialize(bytes)?;
     println!("反序列化后数据: {:?}", deserialized);
 
     // 验证数据一致性
@@ -65,7 +64,7 @@ async fn test_user_serialization() -> Result<()> {
     Ok(())
 }
 
-async fn test_product_serialization() -> Result<()> {
+fn test_product_serialization() -> Result<()> {
     let opts = TypeOptions::from_json(
         r#"{
         "type": "ProtobufSerializer", 
@@ -88,10 +87,10 @@ async fn test_product_serialization() -> Result<()> {
 
     println!("原始产品数据: {:?}", product);
 
-    let bytes = serializer.serialize(product.clone()).await?;
+    let bytes = serializer.serialize(product.clone())?;
     println!("序列化后字节长度: {}", bytes.len());
 
-    let deserialized: Product = serializer.deserialize(bytes).await?;
+    let deserialized: Product = serializer.deserialize(bytes)?;
     println!("反序列化后数据: {:?}", deserialized);
 
     assert_eq!(product.id, deserialized.id);
@@ -103,7 +102,7 @@ async fn test_product_serialization() -> Result<()> {
     Ok(())
 }
 
-async fn test_order_serialization() -> Result<()> {
+fn test_order_serialization() -> Result<()> {
     let opts = TypeOptions::from_json(
         r#"{
         "type": "ProtobufSerializer",
@@ -145,10 +144,10 @@ async fn test_order_serialization() -> Result<()> {
 
     println!("原始订单数据: {:?}", order);
 
-    let bytes = serializer.serialize(order.clone()).await?;
+    let bytes = serializer.serialize(order.clone())?;
     println!("序列化后字节长度: {}", bytes.len());
 
-    let deserialized: Order = serializer.deserialize(bytes).await?;
+    let deserialized: Order = serializer.deserialize(bytes)?;
     println!("反序列化后数据: {:?}", deserialized);
 
     // 验证嵌套数据

@@ -85,8 +85,8 @@ mod tests {
         active: bool,
     }
 
-    #[tokio::test]
-    async fn test_register_json_serializer() -> Result<()> {
+    #[test]
+    fn test_register_json_serializer() -> Result<()> {
         register_serde_serializers::<TestUser>()?;
 
         let opts = TypeOptions::from_json(
@@ -106,20 +106,20 @@ mod tests {
         };
 
         // 验证序列化器可以正常使用
-        let bytes = serializer.serialize(user.clone()).await.unwrap();
-        let deserialized = serializer.deserialize(bytes).await.unwrap();
+        let bytes = serializer.serialize(user.clone()).unwrap();
+        let deserialized = serializer.deserialize(bytes).unwrap();
         assert_eq!(user, deserialized);
 
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_register_msgpack_serializer() -> Result<()> {
+    #[test]
+    fn test_register_msgpack_serializer() -> Result<()> {
         register_serde_serializers::<TestUser>()?;
 
         let opts = TypeOptions::from_json(
             r#"{
-            "type": "MsgPackSerializer", 
+            "type": "MsgPackSerializer",
             "options": { "named": true }
         }"#,
         )?;
@@ -133,15 +133,15 @@ mod tests {
             active: false,
         };
 
-        let bytes = serializer.serialize(user.clone()).await.unwrap();
-        let deserialized = serializer.deserialize(bytes).await.unwrap();
+        let bytes = serializer.serialize(user.clone()).unwrap();
+        let deserialized = serializer.deserialize(bytes).unwrap();
         assert_eq!(user, deserialized);
 
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_register_bson_serializer() -> Result<()> {
+    #[test]
+    fn test_register_bson_serializer() -> Result<()> {
         register_serde_serializers::<TestUser>()?;
 
         let opts = TypeOptions::from_json(
@@ -160,15 +160,15 @@ mod tests {
             active: true,
         };
 
-        let bytes = serializer.serialize(user.clone()).await.unwrap();
-        let deserialized = serializer.deserialize(bytes).await.unwrap();
+        let bytes = serializer.serialize(user.clone()).unwrap();
+        let deserialized = serializer.deserialize(bytes).unwrap();
         assert_eq!(user, deserialized);
 
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_register_multiple_types() -> Result<()> {
+    #[test]
+    fn test_register_multiple_types() -> Result<()> {
         // 注册多种类型的序列化器
         register_serde_serializers::<TestUser>()?;
         register_serde_serializers::<String>()?;
@@ -187,8 +187,8 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_json_pretty_option() -> Result<()> {
+    #[test]
+    fn test_json_pretty_option() -> Result<()> {
         register_serde_serializers::<TestUser>()?;
 
         let opts_pretty = TypeOptions::from_json(
@@ -207,20 +207,20 @@ mod tests {
             active: true,
         };
 
-        let bytes = serializer.serialize(user.clone()).await.unwrap();
+        let bytes = serializer.serialize(user.clone()).unwrap();
         let json_str = String::from_utf8(bytes.clone()).unwrap();
 
         // 验证 pretty 格式（包含换行符）
         assert!(json_str.contains('\n'));
 
-        let deserialized = serializer.deserialize(bytes).await.unwrap();
+        let deserialized = serializer.deserialize(bytes).unwrap();
         assert_eq!(user, deserialized);
 
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_register_protobuf_serializer() -> Result<()> {
+    #[test]
+    fn test_register_protobuf_serializer() -> Result<()> {
         use crate::proto::User;
 
         // protobuf User 类型实现了 prost::Message，
@@ -243,8 +243,8 @@ mod tests {
         };
 
         // 验证序列化器可以正常使用
-        let bytes = serializer.serialize(user.clone()).await.unwrap();
-        let deserialized = serializer.deserialize(bytes).await.unwrap();
+        let bytes = serializer.serialize(user.clone()).unwrap();
+        let deserialized = serializer.deserialize(bytes).unwrap();
 
         assert_eq!(user.name, deserialized.name);
         assert_eq!(user.age, deserialized.age);

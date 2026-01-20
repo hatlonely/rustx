@@ -1,5 +1,4 @@
 use crate::kv::serializer::core::{Serializer, SerializerError};
-use async_trait::async_trait;
 use prost::Message;
 use serde::Deserialize;
 use std::marker::PhantomData;
@@ -36,19 +35,18 @@ impl<T> ProtobufSerializer<T> {
     }
 }
 
-#[async_trait]
 impl<T> Serializer<T, Vec<u8>> for ProtobufSerializer<T>
 where
     T: Message + Default + Send + Sync,
 {
-    async fn serialize(&self, from: T) -> Result<Vec<u8>, SerializerError> {
+    fn serialize(&self, from: T) -> Result<Vec<u8>, SerializerError> {
         let mut buf = Vec::new();
         from.encode(&mut buf)
             .map_err(|e| SerializerError::SerializationFailed(e.to_string()))?;
         Ok(buf)
     }
 
-    async fn deserialize(&self, to: Vec<u8>) -> Result<T, SerializerError> {
+    fn deserialize(&self, to: Vec<u8>) -> Result<T, SerializerError> {
         T::decode(&to[..]).map_err(|e| SerializerError::DeserializationFailed(e.to_string()))
     }
 }
@@ -74,8 +72,8 @@ mod tests {
     use super::*;
     use crate::proto::{User, Product, Order};
 
-    #[tokio::test]
-    async fn test_protobuf_serializer_user() {
+    #[test]
+    fn test_protobuf_serializer_user() {
         let config = ProtobufSerializerConfig::default();
         let serializer = ProtobufSerializer::new(config);
 
@@ -86,18 +84,18 @@ mod tests {
         };
 
         // 序列化
-        let bytes = serializer.serialize(user.clone()).await.unwrap();
+        let bytes = serializer.serialize(user.clone()).unwrap();
 
         // 反序列化
-        let deserialized: User = serializer.deserialize(bytes).await.unwrap();
+        let deserialized: User = serializer.deserialize(bytes).unwrap();
 
         assert_eq!(user.name, deserialized.name);
         assert_eq!(user.age, deserialized.age);
         assert_eq!(user.active, deserialized.active);
     }
 
-    #[tokio::test]
-    async fn test_protobuf_serializer_product() {
+    #[test]
+    fn test_protobuf_serializer_product() {
         let config = ProtobufSerializerConfig::default();
         let serializer = ProtobufSerializer::new(config);
 
@@ -109,10 +107,10 @@ mod tests {
         };
 
         // 序列化
-        let bytes = serializer.serialize(product.clone()).await.unwrap();
+        let bytes = serializer.serialize(product.clone()).unwrap();
 
         // 反序列化
-        let deserialized: Product = serializer.deserialize(bytes).await.unwrap();
+        let deserialized: Product = serializer.deserialize(bytes).unwrap();
 
         assert_eq!(product.id, deserialized.id);
         assert_eq!(product.name, deserialized.name);
@@ -120,8 +118,8 @@ mod tests {
         assert_eq!(product.tags, deserialized.tags);
     }
 
-    #[tokio::test]
-    async fn test_protobuf_serializer_nested() {
+    #[test]
+    fn test_protobuf_serializer_nested() {
         let config = ProtobufSerializerConfig::default();
         let serializer = ProtobufSerializer::new(config);
 
@@ -147,21 +145,21 @@ mod tests {
         };
 
         // 序列化
-        let bytes = serializer.serialize(order.clone()).await.unwrap();
+        let bytes = serializer.serialize(order.clone()).unwrap();
 
         // 反序列化
-        let deserialized: Order = serializer.deserialize(bytes).await.unwrap();
+        let deserialized: Order = serializer.deserialize(bytes).unwrap();
 
         assert_eq!(order.id, deserialized.id);
         assert_eq!(order.total_amount, deserialized.total_amount);
         assert_eq!(order.created_at, deserialized.created_at);
-        
+
         // 验证嵌套的用户信息
         let des_user = deserialized.user.unwrap();
         assert_eq!(user.name, des_user.name);
         assert_eq!(user.age, des_user.age);
         assert_eq!(user.active, des_user.active);
-        
+
         // 验证产品列表
         assert_eq!(order.products.len(), deserialized.products.len());
         let des_product = &deserialized.products[0];

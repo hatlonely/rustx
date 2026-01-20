@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 use serde::{Deserialize, Serialize};
-use async_trait::async_trait;
 use crate::kv::serializer::core::{Serializer, SerializerError};
 
 /// JSON 序列化器配置
@@ -40,12 +39,11 @@ impl<T> JsonSerializer<T> {
     }
 }
 
-#[async_trait]
-impl<T> Serializer<T, Vec<u8>> for JsonSerializer<T> 
-where 
+impl<T> Serializer<T, Vec<u8>> for JsonSerializer<T>
+where
     T: Serialize + for<'de> Deserialize<'de> + Send + Sync,
 {
-    async fn serialize(&self, from: T) -> Result<Vec<u8>, SerializerError> {
+    fn serialize(&self, from: T) -> Result<Vec<u8>, SerializerError> {
         if self.config.pretty {
             serde_json::to_vec_pretty(&from)
                 .map_err(|e| SerializerError::SerializationFailed(e.to_string()))
@@ -54,8 +52,8 @@ where
                 .map_err(|e| SerializerError::SerializationFailed(e.to_string()))
         }
     }
-    
-    async fn deserialize(&self, to: Vec<u8>) -> Result<T, SerializerError> {
+
+    fn deserialize(&self, to: Vec<u8>) -> Result<T, SerializerError> {
         serde_json::from_slice(&to)
             .map_err(|e| SerializerError::DeserializationFailed(e.to_string()))
     }
@@ -88,38 +86,38 @@ mod tests {
         age: u32,
     }
 
-    #[tokio::test]
-    async fn test_json_serializer() {
+    #[test]
+    fn test_json_serializer() {
         let config = JsonSerializerConfig::default();
         let serializer = JsonSerializer::new(config);
-        
+
         let data = TestData {
             name: "Alice".to_string(),
             age: 30,
         };
-        
+
         // 序列化
-        let bytes = serializer.serialize(data.clone()).await.unwrap();
-        
+        let bytes = serializer.serialize(data.clone()).unwrap();
+
         // 反序列化
-        let deserialized: TestData = serializer.deserialize(bytes).await.unwrap();
-        
+        let deserialized: TestData = serializer.deserialize(bytes).unwrap();
+
         assert_eq!(data, deserialized);
     }
 
-    #[tokio::test]
-    async fn test_json_serializer_pretty() {
+    #[test]
+    fn test_json_serializer_pretty() {
         let config = JsonSerializerConfig { pretty: true };
         let serializer = JsonSerializer::new(config);
-        
+
         let data = TestData {
             name: "Alice".to_string(),
             age: 30,
         };
-        
-        let bytes = serializer.serialize(data).await.unwrap();
+
+        let bytes = serializer.serialize(data).unwrap();
         let json_str = String::from_utf8(bytes).unwrap();
-        
+
         // 验证输出包含换行符（美化格式）
         assert!(json_str.contains('\n'));
     }

@@ -11,8 +11,7 @@ struct User {
     active: bool,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let user = User {
         id: 12345,
         name: "张三".to_string(),
@@ -41,11 +40,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let json_serializer: Box<dyn Serializer<User, Vec<u8>>> =
         create_trait_from_type_options(&json_opts)?;
 
-    let json_bytes = json_serializer.serialize(user.clone()).await?;
+    let json_bytes = json_serializer.serialize(user.clone())?;
     println!("JSON 序列化结果:");
     println!("{}", String::from_utf8_lossy(&json_bytes));
 
-    let json_deserialized: User = json_serializer.deserialize(json_bytes.clone()).await?;
+    let json_deserialized: User = json_serializer.deserialize(json_bytes.clone())?;
     assert_eq!(user, json_deserialized);
     println!("JSON 反序列化成功 ✓\n");
 
@@ -61,12 +60,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let msgpack_serializer: Box<dyn Serializer<User, Vec<u8>>> =
         create_trait_from_type_options(&msgpack_opts)?;
 
-    let msgpack_bytes = msgpack_serializer.serialize(user.clone()).await?;
+    let msgpack_bytes = msgpack_serializer.serialize(user.clone())?;
     println!("MessagePack 序列化字节数: {} bytes", msgpack_bytes.len());
 
     let msgpack_deserialized: User = msgpack_serializer
-        .deserialize(msgpack_bytes.clone())
-        .await?;
+        .deserialize(msgpack_bytes.clone())?;
     assert_eq!(user, msgpack_deserialized);
     println!("MessagePack 反序列化成功 ✓\n");
 
@@ -82,10 +80,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bson_serializer: Box<dyn Serializer<User, Vec<u8>>> =
         create_trait_from_type_options(&bson_opts)?;
 
-    let bson_bytes = bson_serializer.serialize(user.clone()).await?;
+    let bson_bytes = bson_serializer.serialize(user.clone())?;
     println!("BSON 序列化字节数: {} bytes", bson_bytes.len());
 
-    let bson_deserialized: User = bson_serializer.deserialize(bson_bytes.clone()).await?;
+    let bson_deserialized: User = bson_serializer.deserialize(bson_bytes.clone())?;
     assert_eq!(user, bson_deserialized);
     println!("BSON 反序列化成功 ✓\n");
 
@@ -101,13 +99,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let json_compact_serializer: Box<dyn Serializer<User, Vec<u8>>> =
         create_trait_from_type_options(&json_compact_opts)?;
 
-    let json_compact_bytes = json_compact_serializer.serialize(user.clone()).await?;
+    let json_compact_bytes = json_compact_serializer.serialize(user.clone())?;
     println!("紧凑 JSON 序列化结果:");
     println!("{}", String::from_utf8_lossy(&json_compact_bytes));
 
     let json_compact_deserialized: User = json_compact_serializer
-        .deserialize(json_compact_bytes.clone())
-        .await?;
+        .deserialize(json_compact_bytes.clone())?;
     assert_eq!(user, json_compact_deserialized);
     println!("紧凑 JSON 反序列化成功 ✓\n");
 
@@ -123,15 +120,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let msgpack_no_names_serializer: Box<dyn Serializer<User, Vec<u8>>> =
         create_trait_from_type_options(&msgpack_no_names_opts)?;
 
-    let msgpack_no_names_bytes = msgpack_no_names_serializer.serialize(user.clone()).await?;
+    let msgpack_no_names_bytes = msgpack_no_names_serializer.serialize(user.clone())?;
     println!(
         "MessagePack（无命名） 序列化字节数: {} bytes",
         msgpack_no_names_bytes.len()
     );
 
     let msgpack_no_names_deserialized: User = msgpack_no_names_serializer
-        .deserialize(msgpack_no_names_bytes.clone())
-        .await?;
+        .deserialize(msgpack_no_names_bytes.clone())?;
     assert_eq!(user, msgpack_no_names_deserialized);
     println!("MessagePack（无命名） 反序列化成功 ✓\n");
 

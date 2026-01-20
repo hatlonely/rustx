@@ -254,13 +254,11 @@ where
         let key_bytes = self
             .key_serializer
             .serialize(key)
-            .await
             .map_err(|e| KvError::Other(format!("Key serialization failed: {}", e)))?;
 
         let val_bytes = self
             .val_serializer
             .serialize(value)
-            .await
             .map_err(|e| KvError::Other(format!("Value serialization failed: {}", e)))?;
 
         // 2. 转换键为字符串（Redis 键必须是字符串）
@@ -318,7 +316,6 @@ where
         let key_bytes = self
             .key_serializer
             .serialize(key)
-            .await
             .map_err(|e| KvError::Other(format!("Key serialization failed: {}", e)))?;
 
         let key_str = String::from_utf8(key_bytes)
@@ -341,7 +338,6 @@ where
                 // 3. 反序列化值
                 self.val_serializer
                     .deserialize(val_bytes)
-                    .await
                     .map_err(|e| KvError::Other(format!("Value deserialization failed: {}", e)))
             }
             None => Err(KvError::KeyNotFound),
@@ -353,7 +349,6 @@ where
         let key_bytes = self
             .key_serializer
             .serialize(key)
-            .await
             .map_err(|e| KvError::Other(format!("Key serialization failed: {}", e)))?;
 
         let key_str = String::from_utf8(key_bytes)
@@ -392,13 +387,11 @@ where
             let key_bytes = self
                 .key_serializer
                 .serialize(key)
-                .await
                 .map_err(|e| KvError::Other(format!("Key serialization failed: {}", e)))?;
 
             let val_bytes = self
                 .val_serializer
                 .serialize(val)
-                .await
                 .map_err(|e| KvError::Other(format!("Value serialization failed: {}", e)))?;
 
             let key_str = String::from_utf8(key_bytes)
@@ -452,7 +445,6 @@ where
             let key_bytes = self
                 .key_serializer
                 .serialize(key)
-                .await
                 .map_err(|e| KvError::Other(format!("Key serialization failed: {}", e)))?;
 
             let key_str = String::from_utf8(key_bytes)
@@ -481,7 +473,7 @@ where
 
         for result in results {
             match result {
-                Some(val_bytes) => match self.val_serializer.deserialize(val_bytes).await {
+                Some(val_bytes) => match self.val_serializer.deserialize(val_bytes) {
                     Ok(val) => {
                         values.push(Some(val));
                         errors.push(None);
@@ -515,7 +507,6 @@ where
             let key_bytes = self
                 .key_serializer
                 .serialize(key)
-                .await
                 .map_err(|e| KvError::Other(format!("Key serialization failed: {}", e)))?;
 
             let key_str = String::from_utf8(key_bytes)

@@ -30,8 +30,8 @@ let serializer: Box<dyn Serializer<User, Vec<u8>>> = create_trait_from_type_opti
 
 // 3. 序列化和反序列化
 let user = User { name: "Alice".to_string(), age: 30 };
-let bytes = serializer.serialize(user).await?;
-let restored_user = serializer.deserialize(bytes).await?;
+let bytes = serializer.serialize(user)?;
+let restored_user = serializer.deserialize(bytes)?;
 ```
 
 ## Serializer 配置选项
