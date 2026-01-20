@@ -46,7 +46,7 @@ impl ConfigReloader<DatabaseConfig> for DatabaseService {
 fn main() -> anyhow::Result<()> {
     // 1. 创建文件配置源
     let source = FileSource::new(FileSourceConfig {
-        base_path: "examples/cfg/configs".to_string(),
+        base_path: "examples/configs/cfg".to_string(),
     });
 
     // 2. 一次性创建对象（无热更新）
@@ -64,7 +64,7 @@ fn main() -> anyhow::Result<()> {
         println!("当前连接信息: {}", guard.connection_info());
     }
 
-    println!("\n提示: 修改 examples/cfg/configs/database.json 文件查看热更新效果");
+    println!("\n提示: 修改 examples/configs/cfg/database.json5 文件查看热更新效果");
     println!("按 Ctrl+C 退出");
 
     // 保持程序运行以观察配置变化

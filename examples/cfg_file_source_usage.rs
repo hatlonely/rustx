@@ -24,9 +24,9 @@ fn main() -> anyhow::Result<()> {
     println!("=== FileSource 使用示例 ===\n");
 
     // 1. 创建文件配置源
-    println!("1. 创建 FileSource，指向 examples/cfg/configs 目录");
+    println!("1. 创建 FileSource，指向 examples/configs/cfg 目录");
     let source = FileSource::new(FileSourceConfig {
-        base_path: "examples/cfg/configs".to_string(),
+        base_path: "examples/configs/cfg".to_string(),
     });
 
     // 2. 使用 load 加载配置并反序列化为结构体
@@ -53,7 +53,7 @@ fn main() -> anyhow::Result<()> {
     }))?;
 
     println!("   监听已启动");
-    println!("   提示：你可以修改 examples/cfg/configs/database.json 文件来测试热更新");
+    println!("   提示：你可以修改 examples/configs/cfg/database.json5 文件来测试热更新");
     println!("   程序将运行 30 秒后自动退出\n");
 
     // 4. 保持程序运行以测试配置热更新

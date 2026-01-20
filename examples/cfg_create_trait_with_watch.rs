@@ -117,7 +117,7 @@ fn main() -> anyhow::Result<()> {
 
     // 2. 创建文件配置源
     let source = FileSource::new(FileSourceConfig {
-        base_path: "examples/cfg/configs".to_string(),
+        base_path: "examples/configs/cfg".to_string(),
     });
 
     // 3. 从配置创建并自动监听 trait object
@@ -132,7 +132,7 @@ fn main() -> anyhow::Result<()> {
         guard.set("user:123", "alice");
     }
 
-    println!("\n提示: 修改 examples/cfg/configs/cache.json 文件中的 type 字段切换缓存实现");
+    println!("\n提示: 修改 examples/configs/cfg/cache.json5 文件中的 type 字段切换缓存实现");
     println!("  - 修改为 \"type\": \"redis\" 使用 Redis 缓存");
     println!("  - 修改为 \"type\": \"memory\" 使用内存缓存");
     println!("按 Ctrl+C 退出");

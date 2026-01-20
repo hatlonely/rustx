@@ -62,7 +62,7 @@ impl FileSource {
 
     /// 查找存在的配置文件
     fn find_config_file(&self, key: &str) -> Result<(PathBuf, &'static str)> {
-        for ext in ["json", "yaml", "yml", "toml"] {
+        for ext in ["json5", "json", "yaml", "yml", "toml"] {
             let path = self.get_file_path(key, ext);
             if path.exists() {
                 return Ok((path, ext));

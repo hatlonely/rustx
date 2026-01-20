@@ -19,7 +19,7 @@ async fn main() -> Result<()> {
     // 2. 使用 FileSource 加载配置
     println!("2. 从文件加载 Store 配置");
     let source = FileSource::new(FileSourceConfig {
-        base_path: "examples/kv/store/configs".to_string(),
+        base_path: "examples/configs/kv_store".to_string(),
     });
 
     let type_options: TypeOptions = source.load("redis_store")?.into_type()?;
@@ -120,7 +120,7 @@ async fn main() -> Result<()> {
     println!("\n存储已关闭");
 
     println!("\n=== 示例完成 ===");
-    println!("提示: 修改 examples/kv/store/configs/store.json 中的 type 字段");
+    println!("提示: 修改 examples/configs/kv_store/redis_store.json5 中的 type 字段");
     println!("      可切换为 \"HashMapStore\" 使用非线程安全版本");
 
     Ok(())
