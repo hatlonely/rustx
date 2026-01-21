@@ -94,14 +94,16 @@ struct ListBucketResult {
     delimiter: Option<String>,
     is_truncated: bool,
     next_continuation_token: Option<String>,
+    #[serde(default)]
     contents: Vec<ObjectContent>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 struct ObjectContent {
     key: String,
     last_modified: DateTime<Utc>,
-    #[serde(deserialize_with = "deserialize_etag")]
+    #[serde(rename = "ETag", deserialize_with = "deserialize_etag")]
     etag: Option<String>,
     size: u64,
 }
@@ -124,15 +126,16 @@ where
 /// 3. ECS 实例角色 - 通过元数据服务 `http://100.100.100.200/latest/meta-data/ram/security-credentials/` 获取
 #[derive(Deserialize, Serialize, SmartDefault, Clone, Validate)]
 #[serde(default)]
-pub struct AliyunOssObjectStoreConfig {
+pub struct AliOssObjectStoreConfig {
     /// 存储桶名称
     #[garde(length(min = 1))]
     #[default = ""]
     pub bucket: String,
 
     /// 区域端点，如 oss-cn-hangzhou.aliyuncs.com
+    /// 如果不配置，会自动从 ECS metadata 获取 region 并使用 internal endpoint
     #[garde(skip)]
-    #[default = "oss-cn-hangzhou.aliyuncs.com"]
+    #[default = ""]
     pub endpoint: String,
 
     /// Access Key ID（优先级 1，最高）
@@ -154,29 +157,38 @@ pub struct AliyunOssObjectStoreConfig {
 }
 
 /// 阿里云 OSS 实现
-pub struct AliyunOssObjectStore {
+pub struct AliOssObjectStore {
     /// 使用 Arc 包装 client，便于在 async 上下文中安全克隆
     client: RwLock<Arc<aliyun_oss_rust_sdk::oss::OSS>>,
     credentials: RwLock<AliyunCredentials>,
-    config: AliyunOssObjectStoreConfig,
+    config: AliOssObjectStoreConfig,
 }
 
 // ECS 元数据服务地址
 const ECS_METADATA_BASE_URL: &str = "http://100.100.100.200/latest/meta-data/ram/security-credentials/";
+const ECS_METADATA_REGION_URL: &str = "http://100.100.100.200/latest/meta-data/region-id";
 
-impl AliyunOssObjectStore {
+impl AliOssObjectStore {
     /// 唯一的构造方法
-    pub fn new(config: AliyunOssObjectStoreConfig) -> Result<Self, ObjectStoreError> {
+    pub fn new(config: AliOssObjectStoreConfig) -> Result<Self, ObjectStoreError> {
         // 使用 garde 验证配置
         if let Err(errors) = config.validate() {
             return Err(ObjectStoreError::Configuration(format!("{}", errors)));
         }
 
-        // 同步获取初始凭证
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| ObjectStoreError::Configuration(format!("创建 runtime 失败: {}", e)))?;
-
-        let credentials = rt.block_on(Self::fetch_credentials(&config))?;
+        // 检测是否已经在 tokio runtime 中运行
+        // 如果是，使用 block_in_place；否则创建新的 runtime
+        let (config, credentials) = if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            // 已经在 runtime 中，使用 block_in_place 避免嵌套 runtime
+            tokio::task::block_in_place(|| {
+                handle.block_on(Self::init_config_and_credentials(config))
+            })?
+        } else {
+            // 不在 runtime 中，创建新的 runtime
+            let rt = tokio::runtime::Runtime::new()
+                .map_err(|e| ObjectStoreError::Configuration(format!("创建 runtime 失败: {}", e)))?;
+            rt.block_on(Self::init_config_and_credentials(config))?
+        };
 
         // 创建 OSS 客户端
         let client = aliyun_oss_rust_sdk::oss::OSS::new(
@@ -193,8 +205,24 @@ impl AliyunOssObjectStore {
         })
     }
 
+    /// 异步初始化配置和凭证
+    async fn init_config_and_credentials(
+        config: AliOssObjectStoreConfig,
+    ) -> Result<(AliOssObjectStoreConfig, AliyunCredentials), ObjectStoreError> {
+        let mut config = config;
+
+        // 如果 endpoint 为空，从 ECS metadata 获取 region 并生成 internal endpoint
+        if config.endpoint.is_empty() {
+            let region = Self::fetch_region_from_ecs_metadata().await?;
+            config.endpoint = format!("oss-{}-internal.aliyuncs.com", region);
+        }
+
+        let credentials = Self::fetch_credentials(&config).await?;
+        Ok((config, credentials))
+    }
+
     /// 按优先级获取凭证
-    async fn fetch_credentials(config: &AliyunOssObjectStoreConfig) -> Result<AliyunCredentials, ObjectStoreError> {
+    async fn fetch_credentials(config: &AliOssObjectStoreConfig) -> Result<AliyunCredentials, ObjectStoreError> {
         // 1. 直接配置的 AK/SK
         if let (Some(ak), Some(sk)) = (&config.access_key_id, &config.access_key_secret) {
             return Ok(AliyunCredentials {
@@ -229,7 +257,7 @@ impl AliyunOssObjectStore {
 
     /// 从 ECS 元数据服务获取凭证
     async fn fetch_credentials_from_ecs_metadata(
-        config: &AliyunOssObjectStoreConfig,
+        config: &AliOssObjectStoreConfig,
     ) -> Result<AliyunCredentials, ObjectStoreError> {
         let http_client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(3))
@@ -296,6 +324,41 @@ impl AliyunOssObjectStore {
             security_token: Some(ecs_creds.security_token),
             expiration: Some(ecs_creds.expiration),
         })
+    }
+
+    /// 从 ECS 元数据服务获取当前实例所在 region
+    async fn fetch_region_from_ecs_metadata() -> Result<String, ObjectStoreError> {
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(3))
+            .build()
+            .map_err(|e| ObjectStoreError::Configuration(format!("创建 HTTP 客户端失败: {}", e)))?;
+
+        let resp = http_client
+            .get(ECS_METADATA_REGION_URL)
+            .send()
+            .await
+            .map_err(|e| ObjectStoreError::Configuration(
+                format!("无法连接 ECS 元数据服务获取 region，可能不在 ECS 实例上运行: {}", e)
+            ))?;
+
+        if !resp.status().is_success() {
+            return Err(ObjectStoreError::Configuration(
+                format!("ECS 元数据服务返回错误: HTTP {}", resp.status())
+            ));
+        }
+
+        let region = resp.text().await
+            .map_err(|e| ObjectStoreError::Configuration(format!("读取 region 失败: {}", e)))?
+            .trim()
+            .to_string();
+
+        if region.is_empty() {
+            return Err(ObjectStoreError::Configuration(
+                "无法从 ECS 元数据服务获取 region".to_string()
+            ));
+        }
+
+        Ok(region)
     }
 
     /// 确保凭证有效（如果过期则刷新）
@@ -450,7 +513,7 @@ impl AliyunOssObjectStore {
 }
 
 #[async_trait]
-impl ObjectStore for AliyunOssObjectStore {
+impl ObjectStore for AliOssObjectStore {
     async fn put_object(&self, key: &str, value: Bytes) -> Result<(), ObjectStoreError> {
         self.put_object_ex(key, value, PutOptions::default()).await
     }
@@ -572,31 +635,101 @@ impl ObjectStore for AliyunOssObjectStore {
         Ok(())
     }
 
-    // 检查对象是否存在 (异步): 通过获取元信息判断
-    async fn head_object(&self, key: &str) -> Result<bool, ObjectStoreError> {
+    // 获取对象元数据: 通过 HTTP HEAD 请求获取
+    async fn head_object(&self, key: &str) -> Result<Option<ObjectMeta>, ObjectStoreError> {
         use aliyun_oss_rust_sdk::request::RequestBuilder;
 
         // 确保凭证有效
         let security_token = self.ensure_credentials().await?;
 
+        // 构建请求 URL
+        let url = if self.config.https {
+            format!("https://{}.{}/{}",
+                self.config.bucket,
+                self.config.endpoint.replacen("https://", "", 1),
+                urlencoding::encode(key)
+            )
+        } else {
+            format!("http://{}.{}/{}",
+                self.config.bucket,
+                self.config.endpoint.replacen("http://", "", 1),
+                urlencoding::encode(key)
+            )
+        };
+
+        // 创建签名请求
         let mut builder = RequestBuilder::new();
+        builder.method = aliyun_oss_rust_sdk::request::RequestType::Head;
+
+        // 获取签名的 headers
+        let (_signed_url, headers) = self.get_client()
+            .build_request(&format!("/{}", key), builder)
+            .map_err(|e| ObjectStoreError::Configuration(
+                format!("Failed to build request: {}", e)
+            ))?;
+
+        // 使用 reqwest 发送 HEAD 请求
+        let http_client = reqwest::Client::new();
+        let mut request = http_client
+            .head(&url)
+            .header("Authorization", headers.get("Authorization").unwrap().to_str().unwrap())
+            .header("Date", headers.get("date").unwrap().to_str().unwrap());
 
         // 添加 STS token（如果有）
         if let Some(ref token) = security_token {
-            builder = builder.oss_header_put("x-oss-security-token", token);
+            request = request.header("x-oss-security-token", token);
         }
 
-        match self.get_client().get_object_metadata(key, builder).await {
-            Ok(_) => Ok(true),
-            Err(e) => {
-                let error_msg = format!("{:?}", e);
-                if error_msg.contains("NoSuchKey") || error_msg.contains("404") {
-                    Ok(false)
-                } else {
-                    Err(ObjectStoreError::from_provider(e, "Aliyun OSS", "head_object"))
-                }
-            }
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ObjectStoreError::from_provider(e, "Aliyun OSS", "head_object"))?;
+
+        // 404 表示对象不存在
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
         }
+
+        if !response.status().is_success() {
+            let status = response.status();
+            return Err(ObjectStoreError::Configuration(
+                format!("Aliyun OSS head_object HTTP {}", status)
+            ));
+        }
+
+        // 从响应头解析元数据
+        let headers = response.headers();
+
+        let size = headers
+            .get("content-length")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
+
+        let last_modified = headers
+            .get("last-modified")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| DateTime::parse_from_rfc2822(s).ok())
+            .map(|dt| dt.with_timezone(&Utc))
+            .unwrap_or_else(Utc::now);
+
+        let etag = headers
+            .get("etag")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.trim_matches('"').to_string());
+
+        let content_type = headers
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        Ok(Some(ObjectMeta {
+            key: key.to_string(),
+            size,
+            last_modified,
+            etag,
+            content_type,
+        }))
     }
 
     // 列举对象: 循环调用分页 API，直到达到 limit 或没有更多数据
@@ -1074,14 +1207,14 @@ impl ObjectStore for AliyunOssObjectStore {
 }
 
 // 实现 From trait
-impl From<AliyunOssObjectStoreConfig> for AliyunOssObjectStore {
-    fn from(config: AliyunOssObjectStoreConfig) -> Self {
+impl From<AliOssObjectStoreConfig> for AliOssObjectStore {
+    fn from(config: AliOssObjectStoreConfig) -> Self {
         Self::new(config).expect("Failed to create AliyunOssObjectStore")
     }
 }
 
-impl From<Box<AliyunOssObjectStore>> for Box<dyn ObjectStore> {
-    fn from(store: Box<AliyunOssObjectStore>) -> Self {
+impl From<Box<AliOssObjectStore>> for Box<dyn ObjectStore> {
+    fn from(store: Box<AliOssObjectStore>) -> Self {
         store as Box<dyn ObjectStore>
     }
 }

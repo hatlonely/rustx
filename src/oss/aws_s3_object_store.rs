@@ -27,7 +27,7 @@ use crate::oss::{
 ///    - EC2 实例元数据服务 IMDS（在 EC2 中运行时）
 #[derive(Deserialize, Serialize, SmartDefault, Clone, Validate)]
 #[serde(default)]
-pub struct S3ObjectStoreConfig {
+pub struct AwsS3ObjectStoreConfig {
     /// 存储桶名称
     #[garde(length(min = 1))]
     #[default = ""]
@@ -57,14 +57,14 @@ pub struct S3ObjectStoreConfig {
 }
 
 /// S3 ObjectStore 实现
-pub struct S3ObjectStore {
+pub struct AwsS3ObjectStore {
     client: Arc<Client>,
-    config: S3ObjectStoreConfig,
+    config: AwsS3ObjectStoreConfig,
 }
 
-impl S3ObjectStore {
+impl AwsS3ObjectStore {
     /// 唯一的构造方法
-    pub fn new(config: S3ObjectStoreConfig) -> Result<Self, ObjectStoreError> {
+    pub fn new(config: AwsS3ObjectStoreConfig) -> Result<Self, ObjectStoreError> {
         // 使用 garde 验证配置
         if let Err(errors) = config.validate() {
             return Err(ObjectStoreError::Configuration(format!("{}", errors)));
@@ -86,7 +86,7 @@ impl S3ObjectStore {
         })
     }
 
-    async fn create_client(config: &S3ObjectStoreConfig) -> Result<Client, ObjectStoreError> {
+    async fn create_client(config: &AwsS3ObjectStoreConfig) -> Result<Client, ObjectStoreError> {
         let mut builder = aws_config::defaults(aws_config::BehaviorVersion::latest());
 
         // 设置区域
@@ -120,7 +120,7 @@ impl S3ObjectStore {
 }
 
 #[async_trait]
-impl ObjectStore for S3ObjectStore {
+impl ObjectStore for AwsS3ObjectStore {
     async fn put_object(&self, key: &str, value: Bytes) -> Result<(), ObjectStoreError> {
         self.put_object_ex(key, value, PutOptions::default()).await
     }
@@ -199,7 +199,7 @@ impl ObjectStore for S3ObjectStore {
         Ok(())
     }
 
-    async fn head_object(&self, key: &str) -> Result<bool, ObjectStoreError> {
+    async fn head_object(&self, key: &str) -> Result<Option<ObjectMeta>, ObjectStoreError> {
         match self.client
             .head_object()
             .bucket(&self.config.bucket)
@@ -207,11 +207,25 @@ impl ObjectStore for S3ObjectStore {
             .send()
             .await
         {
-            Ok(_) => Ok(true),
+            Ok(output) => {
+                let last_modified = output
+                    .last_modified()
+                    .and_then(|dt| {
+                        chrono::DateTime::from_timestamp(dt.secs(), dt.subsec_nanos())
+                    })
+                    .unwrap_or_else(chrono::Utc::now);
+
+                Ok(Some(ObjectMeta {
+                    key: key.to_string(),
+                    size: output.content_length().unwrap_or(0) as u64,
+                    last_modified,
+                    etag: output.e_tag().map(|s| s.to_string()),
+                    content_type: output.content_type().map(|s| s.to_string()),
+                }))
+            }
             Err(e) => {
-                // TODO: 更精确的错误判断
                 match e {
-                    SdkError::ServiceError(se) if se.err().is_not_found() => Ok(false),
+                    SdkError::ServiceError(se) if se.err().is_not_found() => Ok(None),
                     _ => Err(ObjectStoreError::from_provider(e, "S3", "head_object")),
                 }
             }
@@ -490,14 +504,14 @@ impl ObjectStore for S3ObjectStore {
 }
 
 // 实现 From trait
-impl From<S3ObjectStoreConfig> for S3ObjectStore {
-    fn from(config: S3ObjectStoreConfig) -> Self {
+impl From<AwsS3ObjectStoreConfig> for AwsS3ObjectStore {
+    fn from(config: AwsS3ObjectStoreConfig) -> Self {
         Self::new(config).expect("Failed to create S3ObjectStore")
     }
 }
 
-impl From<Box<S3ObjectStore>> for Box<dyn ObjectStore> {
-    fn from(store: Box<S3ObjectStore>) -> Self {
+impl From<Box<AwsS3ObjectStore>> for Box<dyn ObjectStore> {
+    fn from(store: Box<AwsS3ObjectStore>) -> Self {
         store as Box<dyn ObjectStore>
     }
 }

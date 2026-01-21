@@ -39,8 +39,11 @@ pub trait ObjectStore: Send + Sync {
     /// 删除对象
     async fn delete_object(&self, key: &str) -> Result<(), ObjectStoreError>;
 
-    /// 检查对象是否存在
-    async fn head_object(&self, key: &str) -> Result<bool, ObjectStoreError>;
+    /// 获取对象元数据
+    ///
+    /// 返回 `Ok(Some(ObjectMeta))` 如果对象存在
+    /// 返回 `Ok(None)` 如果对象不存在
+    async fn head_object(&self, key: &str) -> Result<Option<ObjectMeta>, ObjectStoreError>;
 
     /// 循环调用 list_objects 获取所有全部或最大个数的 objects
     async fn list_objects(

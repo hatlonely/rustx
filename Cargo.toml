@@ -54,6 +54,12 @@ google-cloud-auth = "0.6"
 futures = "0.3"
 quick-xml = { version = "0.31", features = ["serialize"] }
 glob = "0.3"
+# CLI tools
+clap = { version = "4.4", features = ["derive"] }
+indicatif = "0.17"
+dirs = "5.0"
+shellexpand = "3.1"
+regex-lite = "0.1"
 
 [build-dependencies]
 prost-build = "0.12"
@@ -68,3 +74,7 @@ criterion = "0.5"
 name = "text_formatter_benchmark"
 path = "benches/log/formatter/text_formatter_benchmark.rs"
 harness = false
+
+[[bin]]
+name = "oss"
+path = "src/bin/oss-tool/main.rs"

@@ -38,8 +38,8 @@ pub use kv::{
 pub use log::{LogLevel, Logger, LoggerConfig, LogAppender, LogFormatter, LogRecord};
 
 pub use oss::{ObjectStore, ObjectStoreError, ObjectMeta, PutOptions};
-pub use oss::{S3ObjectStore, S3ObjectStoreConfig};
-pub use oss::{AliyunOssObjectStore, AliyunOssObjectStoreConfig};
+pub use oss::{AwsS3ObjectStore, AwsS3ObjectStoreConfig};
+pub use oss::{AliOssObjectStore, AliOssObjectStoreConfig};
 pub use oss::{GcpGcsObjectStore, GcpGcsObjectStoreConfig};
 pub use oss::register_object_store;
 

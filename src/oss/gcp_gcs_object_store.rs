@@ -218,9 +218,8 @@ impl ObjectStore for GcpGcsObjectStore {
         Ok(())
     }
 
-    async fn head_object(&self, key: &str) -> Result<bool, ObjectStoreError> {
+    async fn head_object(&self, key: &str) -> Result<Option<ObjectMeta>, ObjectStoreError> {
         use google_cloud_storage::http::objects::get::GetObjectRequest;
-        use google_cloud_storage::http::objects::download::Range;
 
         let request = GetObjectRequest {
             bucket: self.config.bucket.clone(),
@@ -228,16 +227,30 @@ impl ObjectStore for GcpGcsObjectStore {
             ..Default::default()
         };
 
-        match self.client.download_object(&request, &Range::default(), None).await {
-            Ok(_) => Ok(true),
+        match self.client.get_object(&request, None).await {
+            Ok(obj) => {
+                let last_modified = obj.updated
+                    .map(|dt| {
+                        chrono::DateTime::from_timestamp(dt.timestamp(), dt.timestamp_subsec_nanos())
+                            .unwrap_or_else(|| chrono::Utc::now())
+                    })
+                    .unwrap_or_else(chrono::Utc::now);
+
+                Ok(Some(ObjectMeta {
+                    key: obj.name,
+                    size: obj.size as u64,
+                    last_modified,
+                    etag: Some(obj.etag),
+                    content_type: obj.content_type,
+                }))
+            }
             Err(e) => {
-                // TODO: 更精确的错误判断（检查是否为 NotFound）
-                // 目前使用简单的字符串匹配
+                // 检查是否为 NotFound 错误
                 let error_msg = format!("{:?}", e);
                 if error_msg.contains("notFound") || error_msg.contains("404") {
-                    Ok(false)
+                    Ok(None)
                 } else {
-                    Err(ObjectStoreError::from_provider(e, "GCP GCS", "download_object"))
+                    Err(ObjectStoreError::from_provider(e, "GCP GCS", "get_object"))
                 }
             }
         }
