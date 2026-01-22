@@ -26,7 +26,7 @@ pub mod oss;
 pub mod proto;
 
 // 重新导出主要的公共 API
-pub use cfg::{create_from_type_options, register, register_auto, TypeOptions};
+pub use cfg::{create_trait_from_type_options, register_trait, TypeOptions};
 
 pub use fs::{FileEvent, FileWatcher};
 

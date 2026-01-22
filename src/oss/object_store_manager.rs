@@ -1,7 +1,7 @@
 // Store matching and management
 
 use anyhow::{anyhow, Result};
-use crate::cfg::{create_trait_from_type_options, register, ConfigReloader, TypeOptions};
+use crate::cfg::{create_trait_from_type_options, ConfigReloader, TypeOptions};
 use super::object_store_types::{FailedFile, GetDirectoryOptions, GetFileOptions, ObjectMeta, PutDirectoryOptions, PutFileOptions};
 use super::object_store::ObjectStore;
 use crate::oss::register_object_store;
@@ -40,15 +40,6 @@ pub struct DefaultOptions {
     /// Threshold for multipart upload (default: 100MB)
     #[default = 104857600]
     pub multipart_threshold: u64,
-}
-
-/// Register ObjectStoreManager to the type system
-///
-/// This function must be called before creating ObjectStoreManager instances
-/// through the configuration system.
-pub fn register_store_manager() -> Result<()> {
-    register::<ObjectStoreManager, ObjectStoreManagerConfig>("ObjectStoreManager")
-        .map_err(|e| anyhow!("Failed to register ObjectStoreManager: {}", e))
 }
 
 /// Store manager for caching and retrieving ObjectStore instances

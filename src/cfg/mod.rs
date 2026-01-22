@@ -19,10 +19,7 @@ pub use apollo_source::{ApolloSource, ApolloSourceConfig};
 pub use configurable::Configurable;
 pub use file_source::{FileSource, FileSourceConfig};
 pub use register::register_sources;
-pub use registry::{
-    create_from_type_options, create_trait_from_type_options, register, register_auto,
-    register_trait,
-};
+pub use registry::{create_trait_from_type_options, register_trait};
 pub use reloader::ConfigReloader;
 pub use source::{ConfigChange, ConfigSource, ConfigValue};
 pub use type_options::TypeOptions;

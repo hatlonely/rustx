@@ -23,7 +23,7 @@ pub use object_store_types::{
 pub use aws_s3_object_store::{AwsS3ObjectStore, AwsS3ObjectStoreConfig};
 pub use ali_oss_object_store::{AliOssObjectStore, AliOssObjectStoreConfig};
 pub use gcp_gcs_object_store::{GcpGcsObjectStore, GcpGcsObjectStoreConfig};
-pub use object_store_manager::{ObjectStoreManager, ObjectStoreManagerConfig, DefaultOptions, register_store_manager};
+pub use object_store_manager::{ObjectStoreManager, ObjectStoreManagerConfig, DefaultOptions};
 pub use object_store_manager_types::{CpOptions, CpResult, LsOptions, RmOptions, RmResult};
 pub use uri::{OssUri, Provider, Location, is_remote_uri};
 

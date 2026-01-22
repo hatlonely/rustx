@@ -146,77 +146,7 @@ let source = ApolloSource::new(ApolloSourceConfig {
 let config: DatabaseConfig = source.load("database")?.into_type()?;
 ```
 
-### 5. 类型注册系统
-
-```rust
-use rustx::cfg::{register, TypeOptions, create_from_type_options};
-use serde::Deserialize;
-use smart_default::SmartDefault;
-
-// 1. 定义配置结构体
-#[derive(Deserialize, SmartDefault)]
-#[serde(default)]
-struct DatabaseConfig {
-    #[default = "localhost"]
-    host: String,
-    #[default = 3306]
-    port: u16,
-    #[default = "root"]
-    username: String,
-    #[default = ""]
-    password: String,
-}
-
-// 2. 定义业务类，并提供唯一的 new 方法接受 Config
-struct Database {
-    host: String,
-    port: u16,
-    connection: String,
-}
-
-impl Database {
-    // 唯一的构造方法，使用 Config 结构创建
-    // 如果构造过程可能失败，可以返回 Result<Self, Error>
-    pub fn new(config: DatabaseConfig) -> Result<Self, DatabaseError> {
-        if config.port == 0 {
-            return Err(DatabaseError::InvalidPort);
-        }
-        Ok(Self {
-            host: config.host.clone(),
-            port: config.port,
-            connection: format!("{}:{}", config.host, config.port),
-        })
-    }
-}
-
-// 实现 From trait，这是注册系统要求的
-// 如果 new 返回 Result，使用 expect 处理错误
-impl From<DatabaseConfig> for Database {
-    fn from(config: DatabaseConfig) -> Self {
-        Database::new(config).expect("Failed to create Database")
-    }
-}
-
-// 3. 注册到类型系统
-register::<Database, DatabaseConfig>("Database")?;
-
-// 4. 通过类型选项创建对象
-let type_options = TypeOptions {
-    type_name: "Database".to_string(),
-    options: serde_json::json!({
-        "host": "localhost",
-        "port": 3306,
-        "username": "admin",
-        "password": "secret"
-    }),
-};
-
-let db = create_from_type_options(&type_options)?
-    .downcast::<Database>()
-    .unwrap();
-```
-
-### 6. Trait 注册
+### 5. Trait 注册
 
 ```rust
 use rustx::cfg::{register_trait, TypeOptions, create_trait_from_type_options};
@@ -300,14 +230,13 @@ let cache: Box<dyn Cache> = create_trait_from_type_options(&TypeOptions {
 - 每个类放到单独的文件中，并且文件名以类名的小写下划线格式命名
 - 每个类只提供一个 `new` 方法，参数为对应的 `Config` 结构体
 - **Config 命名规范**：严格遵循"原类名 + Config"后缀，如 `Database` -> `DatabaseConfig`、`RedisCache` -> `RedisCacheConfig`
-- **注册名称规范**：注册的类型名称必须严格与类名保持一致，如 `register::<Database, DatabaseConfig>("Database")`
+- **注册名称规范**：注册的类型名称必须严格与类名保持一致，如 `register_trait::<RedisCache, dyn Cache, RedisCacheConfig>("RedisCache")`
 - 配置结构体使用 `serde::Deserialize` 进行自动反序列化
 - **使用 SmartDefault 设置默认值**：配置结构体应使用 `#[derive(SmartDefault)]` 并配合 `#[serde(default)]`，为常用配置项设置合理的默认值
   - 字符串字段：`#[default = "value"]`
   - 数值字段：`#[default = value]`
   - 使用 `Default::default()` 或结构体更新语法 `..Default::default()` 构建部分配置
-- 通过 `register`/`register_trait` 注册到类型系统
-- 使用 `create_from_type_options`/`create_trait_from_type_options` 进行动态创建
+- 通过 `register_trait` 注册到类型系统，使用 `create_trait_from_type_options` 进行动态创建
 - **构造方法返回值**：`new` 方法可以返回 `Self` 或 `Result<Self, Error>`，根据是否需要错误处理选择
   - 简单场景：`pub fn new(config: XxxConfig) -> Self`
   - 可能失败的场景：`pub fn new(config: XxxConfig) -> Result<Self, Error>`
