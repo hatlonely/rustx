@@ -3,7 +3,7 @@ pub mod kv_file_stream;
 pub mod kv_file_loader;
 pub mod empty_stream;
 pub mod file_trigger;
-pub mod registry;
+pub mod register;
 
 // 重新导出核心类型和 trait
 pub use core::{
@@ -17,4 +17,4 @@ pub use empty_stream::EmptyStream;
 pub use file_trigger::{FileTrigger, FileTriggerConfig};
 
 // 重新导出注册函数
-pub use registry::register_loaders;
+pub use register::register_loaders;

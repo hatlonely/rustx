@@ -14,7 +14,7 @@ use std::sync::Arc;
 use super::object_store_manager_types::{CpOptions, CpResult, LsOptions, RmOptions, RmResult};
 use super::uri::{Location, OssUri, Provider};
 
-/// StoreManager configuration
+/// ObjectStoreManager configuration
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct ObjectStoreManagerConfig {
@@ -42,13 +42,13 @@ pub struct DefaultOptions {
     pub multipart_threshold: u64,
 }
 
-/// Register StoreManager to the type system
+/// Register ObjectStoreManager to the type system
 ///
-/// This function must be called before creating StoreManager instances
+/// This function must be called before creating ObjectStoreManager instances
 /// through the configuration system.
 pub fn register_store_manager() -> Result<()> {
-    register::<ObjectStoreManager, ObjectStoreManagerConfig>("StoreManager")
-        .map_err(|e| anyhow!("Failed to register StoreManager: {}", e))
+    register::<ObjectStoreManager, ObjectStoreManagerConfig>("ObjectStoreManager")
+        .map_err(|e| anyhow!("Failed to register ObjectStoreManager: {}", e))
 }
 
 /// Store manager for caching and retrieving ObjectStore instances
@@ -60,7 +60,7 @@ pub struct ObjectStoreManager {
 }
 
 impl ObjectStoreManager {
-    /// Create a new StoreManager with the given configuration
+    /// Create a new ObjectStoreManager with the given configuration
     pub fn new(config: ObjectStoreManagerConfig) -> Self {
         // Register ObjectStore implementations
         register_object_store();

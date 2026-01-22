@@ -7,6 +7,7 @@ pub mod apollo_source;
 pub mod configurable;
 pub mod file_source;
 pub mod macros;
+pub mod register;
 pub mod registry;
 pub mod reloader;
 pub mod serde_duration;
@@ -17,6 +18,7 @@ pub mod type_options;
 pub use apollo_source::{ApolloSource, ApolloSourceConfig};
 pub use configurable::Configurable;
 pub use file_source::{FileSource, FileSourceConfig};
+pub use register::register_sources;
 pub use registry::{
     create_from_type_options, create_trait_from_type_options, register, register_auto,
     register_trait,
