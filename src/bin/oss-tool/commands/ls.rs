@@ -3,27 +3,20 @@
 use anyhow::Result;
 
 use crate::cli::LsArgs;
+use rustx::oss::LsOptions;
 use crate::progress::{format_bytes, format_timestamp};
-use crate::store::StoreManager;
-use crate::uri::OssUri;
+use rustx::oss::ObjectStoreManager;
 
 /// Execute the ls command
-pub async fn execute_ls(args: &LsArgs, manager: &mut StoreManager) -> Result<()> {
-    let uri = OssUri::parse(&args.uri)?;
-    let store = manager.get_store(&uri)?;
-
-    let max_keys = args.max_keys.map(|k| k as usize);
-    let mut total_count = 0;
-    let mut total_size: u64 = 0;
-
-    // Use prefix from URI key
-    let prefix = if uri.key.is_empty() {
-        None
-    } else {
-        Some(uri.key.as_str())
+pub async fn execute_ls(args: &LsArgs, manager: &mut ObjectStoreManager) -> Result<()> {
+    let options = LsOptions {
+        max_keys: args.max_keys.map(|k| k as usize),
     };
 
-    let objects = store.list_objects(prefix, max_keys).await?;
+    let objects = manager.ls(&args.uri, options).await?;
+
+    let mut total_count = 0;
+    let mut total_size: u64 = 0;
 
     for obj in &objects {
         total_count += 1;

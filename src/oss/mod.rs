@@ -1,13 +1,16 @@
 mod error;
 mod object_store;
-mod object_meta;
+mod object_store_types;
 mod aws_s3_object_store;
 mod ali_oss_object_store;
 mod gcp_gcs_object_store;
+mod object_store_manager;
+mod object_store_manager_types;
+mod uri;
 
 pub use error::ObjectStoreError;
 pub use object_store::ObjectStore;
-pub use object_meta::{
+pub use object_store_types::{
     ObjectMeta, PutOptions, GetOptions,
     // 新增类型
     PartInfo, TransferProgress, DirectoryTransferProgress,
@@ -20,6 +23,9 @@ pub use object_meta::{
 pub use aws_s3_object_store::{AwsS3ObjectStore, AwsS3ObjectStoreConfig};
 pub use ali_oss_object_store::{AliOssObjectStore, AliOssObjectStoreConfig};
 pub use gcp_gcs_object_store::{GcpGcsObjectStore, GcpGcsObjectStoreConfig};
+pub use object_store_manager::{ObjectStoreManager, ObjectStoreManagerConfig, DefaultOptions, register_store_manager};
+pub use object_store_manager_types::{CpOptions, CpResult, LsOptions, RmOptions, RmResult};
+pub use uri::{OssUri, Provider, Location, is_remote_uri};
 
 use crate::cfg::register_trait;
 
