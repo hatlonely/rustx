@@ -11,10 +11,10 @@ mod uri;
 pub use error::ObjectStoreError;
 pub use object_store::ObjectStore;
 pub use object_store_types::{
-    ObjectMeta, PutOptions, GetOptions,
+    ObjectMeta, PutObjectOptions, GetObjectOptions,
     // 新增类型
-    PartInfo, TransferProgress, DirectoryTransferProgress,
-    ProgressCallback, DirectoryProgressCallback,
+    PartInfo, DirectoryTransferProgress,
+    DirectoryProgressCallback,
     PutStreamOptions, GetStreamOptions,
     PutFileOptions, GetFileOptions,
     PutDirectoryOptions, GetDirectoryOptions,

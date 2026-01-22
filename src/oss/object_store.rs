@@ -5,12 +5,12 @@ use glob::Pattern;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::oss::{
     DirectoryTransferProgress, DirectoryTransferResult, FailedFile, GetDirectoryOptions,
-    GetFileOptions, GetOptions, GetStreamOptions, ObjectMeta, ObjectStoreError, PartInfo,
-    PutDirectoryOptions, PutFileOptions, PutOptions, PutStreamOptions, TransferProgress,
+    GetFileOptions, GetObjectOptions, GetStreamOptions, ObjectMeta, ObjectStoreError,
+    PutDirectoryOptions, PutFileOptions, PutObjectOptions, PutStreamOptions,
 };
 
 /// 对象存储统一接口
@@ -18,22 +18,16 @@ use crate::oss::{
 pub trait ObjectStore: Send + Sync {
     // === 基础 CRUD ===
 
-    /// 上传对象
-    async fn put_object(&self, key: &str, value: Bytes) -> Result<(), ObjectStoreError>;
-
     /// 上传对象（带选项）
-    async fn put_object_ex(
+    async fn put_object(
         &self,
         key: &str,
         value: Bytes,
-        options: PutOptions,
+        options: PutObjectOptions,
     ) -> Result<(), ObjectStoreError>;
 
-    /// 获取对象
-    async fn get_object(&self, key: &str) -> Result<Bytes, ObjectStoreError>;
-
     /// 获取对象（带选项）
-    async fn get_object_ex(&self, key: &str, options: GetOptions)
+    async fn get_object(&self, key: &str, options: GetObjectOptions)
         -> Result<Bytes, ObjectStoreError>;
 
     /// 删除对象
@@ -71,39 +65,6 @@ pub trait ObjectStore: Send + Sync {
         options: GetStreamOptions,
     ) -> Result<u64, ObjectStoreError>;
 
-    // === 分片上传接口 ===
-
-    /// 初始化分片上传
-    async fn create_multipart_upload(
-        &self,
-        key: &str,
-        options: PutOptions,
-    ) -> Result<String, ObjectStoreError>;
-
-    /// 上传分片
-    async fn upload_part(
-        &self,
-        key: &str,
-        upload_id: &str,
-        part_number: u32,
-        data: Bytes,
-    ) -> Result<PartInfo, ObjectStoreError>;
-
-    /// 完成分片上传
-    async fn complete_multipart_upload(
-        &self,
-        key: &str,
-        upload_id: &str,
-        parts: Vec<PartInfo>,
-    ) -> Result<(), ObjectStoreError>;
-
-    /// 取消分片上传
-    async fn abort_multipart_upload(
-        &self,
-        key: &str,
-        upload_id: &str,
-    ) -> Result<(), ObjectStoreError>;
-
     // === 文件操作（默认实现） ===
 
     /// 上传本地文件
@@ -116,116 +77,15 @@ pub trait ObjectStore: Send + Sync {
         let metadata = tokio::fs::metadata(local_path).await?;
         let file_size = metadata.len();
 
-        if file_size <= options.multipart_threshold {
-            // 小文件：使用流式上传
-            let file = tokio::fs::File::open(local_path).await?;
-            let stream_options = PutStreamOptions {
-                content_type: options.content_type.clone(),
-                metadata: options.metadata.clone(),
-                progress_callback: options.progress_callback.clone(),
-            };
-            self.put_stream(key, Box::new(file), file_size, stream_options)
-                .await
-        } else {
-            // 大文件：使用分片上传
-            self.put_file_multipart(key, local_path, file_size, options)
-                .await
-        }
-    }
-
-    /// 分片上传大文件（内部方法）
-    async fn put_file_multipart(
-        &self,
-        key: &str,
-        local_path: &Path,
-        file_size: u64,
-        options: PutFileOptions,
-    ) -> Result<(), ObjectStoreError> {
-        let put_options = PutOptions {
+        // 小文件：使用流式上传
+        let file = tokio::fs::File::open(local_path).await?;
+        let stream_options = PutStreamOptions {
             content_type: options.content_type.clone(),
             metadata: options.metadata.clone(),
-            tags: None,
+            part_size: options.part_size,
+            multipart_concurrency: options.multipart_concurrency,
         };
-
-        let upload_id = self.create_multipart_upload(key, put_options).await?;
-
-        // 计算分片数量
-        let part_size = options.part_size as u64;
-        let part_count = (file_size + part_size - 1) / part_size;
-
-        // 准备分片任务
-        let mut part_tasks = Vec::new();
-        for i in 0..part_count {
-            let start = i * part_size;
-            let end = std::cmp::min(start + part_size, file_size);
-            part_tasks.push((i as u32 + 1, start, end));
-        }
-
-        // 进度跟踪
-        let transferred = Arc::new(AtomicU64::new(0));
-
-        // 并发上传分片
-        let results: Vec<Result<PartInfo, ObjectStoreError>> =
-            futures::stream::iter(part_tasks.into_iter().map(|(part_number, start, end)| {
-                let local_path = local_path.to_path_buf();
-                let key = key.to_string();
-                let upload_id = upload_id.clone();
-                let transferred = transferred.clone();
-                let progress_callback = options.progress_callback.clone();
-
-                async move {
-                    // 读取分片数据
-                    let mut file = tokio::fs::File::open(&local_path).await?;
-                    tokio::io::AsyncSeekExt::seek(
-                        &mut file,
-                        std::io::SeekFrom::Start(start),
-                    )
-                    .await?;
-
-                    let chunk_size = (end - start) as usize;
-                    let mut buffer = vec![0u8; chunk_size];
-                    file.read_exact(&mut buffer).await?;
-
-                    let result = self
-                        .upload_part(&key, &upload_id, part_number, Bytes::from(buffer))
-                        .await?;
-
-                    // 更新进度
-                    let new_transferred =
-                        transferred.fetch_add(chunk_size as u64, Ordering::SeqCst)
-                            + chunk_size as u64;
-                    if let Some(ref callback) = progress_callback {
-                        callback.on_progress(&TransferProgress {
-                            transferred_bytes: new_transferred,
-                            total_bytes: file_size,
-                        });
-                    }
-
-                    Ok(result)
-                }
-            }))
-            .buffer_unordered(options.multipart_concurrency)
-            .collect()
-            .await;
-
-        // 检查是否有错误
-        let mut parts = Vec::new();
-        for result in results {
-            match result {
-                Ok(part) => parts.push(part),
-                Err(e) => {
-                    // 出错时取消上传
-                    let _ = self.abort_multipart_upload(key, &upload_id).await;
-                    return Err(e);
-                }
-            }
-        }
-
-        // 按 part_number 排序
-        parts.sort_by_key(|p| p.part_number);
-
-        // 完成上传
-        self.complete_multipart_upload(key, &upload_id, parts)
+        self.put_stream(key, Box::new(file), file_size, stream_options)
             .await
     }
 
@@ -253,7 +113,6 @@ pub trait ObjectStore: Send + Sync {
 
         let stream_options = GetStreamOptions {
             range: None,
-            progress_callback: options.progress_callback,
         };
 
         self.get_stream(key, Box::new(file), stream_options).await?;
@@ -306,7 +165,6 @@ pub trait ObjectStore: Send + Sync {
                     multipart_threshold: options.multipart_threshold,
                     part_size: options.part_size,
                     multipart_concurrency: options.multipart_concurrency,
-                    progress_callback: None,
                 };
 
                 async move {
@@ -405,7 +263,6 @@ pub trait ObjectStore: Send + Sync {
                 let progress_callback = options.progress_callback.clone();
                 let file_options = GetFileOptions {
                     overwrite: options.overwrite,
-                    progress_callback: None,
                 };
 
                 async move {

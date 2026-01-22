@@ -29,14 +29,14 @@ rmp-serde = "1.1"
 bson = "2.8"
 prost = "0.12"
 bytes = "1.0"
-redis = { version = "0.24", features = ["aio", "tokio-comp", "connection-manager"] }
+redis = { version = "1.0.2", features = ["aio", "tokio-comp", "connection-manager"] }
 log = "0.4"
 dunce = "1.0"
 rayon = "1.10"
 num_cpus = "1.16"
 rustx-macros = { path = "macros" }
 colored = "2.1"
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
 smart-default = "0.7"
 flate2 = "1.0"
 garde = { version = "0.20", features = ["derive"] }
@@ -49,8 +49,9 @@ aws-credential-types = "1.0"
 aliyun-oss-rust-sdk = { version = "0.2", features = ["async"] }
 urlencoding = "2.1"
 # GCP Cloud Storage
-google-cloud-storage = "0.6"
-google-cloud-auth = "0.6"
+google-cloud-storage = "1.6"
+google-cloud-auth = "1.4"
+google-cloud-gax-internal = { version = "0.7.7", features = ["_internal-common"] }
 futures = "0.3"
 quick-xml = { version = "0.31", features = ["serialize"] }
 glob = "0.3"

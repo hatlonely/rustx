@@ -8,11 +8,11 @@ use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use std::sync::Arc;
 use garde::Validate;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{self, AsyncRead, AsyncReadExt, AsyncWrite};
 
 use crate::oss::{
-    ObjectStore, ObjectStoreError, ObjectMeta, PutOptions, GetOptions,
-    PutStreamOptions, GetStreamOptions, PartInfo, TransferProgress,
+    ObjectStore, ObjectStoreError, ObjectMeta, PutObjectOptions, GetObjectOptions,
+    PutStreamOptions, GetStreamOptions, PartInfo,
 };
 
 /// S3 ObjectStore 配置
@@ -70,15 +70,24 @@ impl AwsS3ObjectStore {
             return Err(ObjectStoreError::Configuration(format!("{}", errors)));
         }
 
-        // 创建 SDK 客户端（同步创建，使用 runtime blocker）
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| ObjectStoreError::Configuration(
-                format!("创建 runtime 失败: {}", e)
-            ))?;
-
-        let client = rt.block_on(async {
-            Self::create_client(&config).await
-        })?;
+        // 尝试获取当前 runtime 的 handle，如果不存在则创建新的
+        let client = if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            // 已经在 runtime 中，使用 block_in_place 避免阻塞
+            tokio::task::block_in_place(|| {
+                handle.block_on(async {
+                    Self::create_client(&config).await
+                })
+            })
+        } else {
+            // 不在 runtime 中，创建新的 runtime
+            let rt = tokio::runtime::Runtime::new()
+                .map_err(|e| ObjectStoreError::Configuration(
+                    format!("创建 runtime 失败: {}", e)
+                ))?;
+            rt.block_on(async {
+                Self::create_client(&config).await
+            })
+        }?;
 
         Ok(Self {
             client: Arc::new(client),
@@ -117,19 +126,182 @@ impl AwsS3ObjectStore {
             Ok(Client::new(&sdk_config))
         }
     }
+
+    /// 流式分片上传的内部实现
+    async fn put_stream_multipart(
+        &self,
+        key: &str,
+        upload_id: &str,
+        reader: &mut Box<dyn AsyncRead + Send + Unpin>,
+        _size: u64,
+        options: &PutStreamOptions,
+    ) -> Result<(), ObjectStoreError> {
+        let part_size = options.part_size;
+        let mut parts: Vec<PartInfo> = Vec::new();
+        let mut part_number: u32 = 1;
+
+        loop {
+            // 读取一个分片大小的数据
+            let mut buffer = vec![0u8; part_size];
+            let mut buffer_len = 0;
+
+            while buffer_len < part_size {
+                let n = reader.read(&mut buffer[buffer_len..]).await?;
+                if n == 0 {
+                    break;
+                }
+                buffer_len += n;
+            }
+
+            if buffer_len == 0 {
+                break;
+            }
+
+            buffer.truncate(buffer_len);
+
+            // 上传分片
+            let part_info = self
+                .upload_part(key, upload_id, part_number, Bytes::from(buffer))
+                .await?;
+
+            parts.push(part_info);
+            part_number += 1;
+        }
+
+        // 完成分片上传
+        if parts.is_empty() {
+            // 空文件情况：取消分片上传，使用普通上传
+            self.abort_multipart_upload(key, upload_id).await?;
+            self.put_object(key, Bytes::new(), PutObjectOptions::default()).await?;
+        } else {
+            self.complete_multipart_upload(key, upload_id, parts).await?;
+        }
+
+        Ok(())
+    }
+
+    // === 分片上传接口 ===
+    async fn create_multipart_upload(
+        &self,
+        key: &str,
+        options: PutObjectOptions,
+    ) -> Result<String, ObjectStoreError> {
+        let mut request = self.client
+            .create_multipart_upload()
+            .bucket(&self.config.bucket)
+            .key(key);
+
+        if let Some(ct) = &options.content_type {
+            request = request.content_type(ct);
+        }
+
+        if let Some(metadata) = &options.metadata {
+            for (k, v) in metadata {
+                request = request.metadata(k, v);
+            }
+        }
+
+        let output = request
+            .send()
+            .await
+            .map_err(|e| ObjectStoreError::from_provider(e, "S3", "create_multipart_upload"))?;
+
+        output.upload_id
+            .ok_or_else(|| ObjectStoreError::MultipartUpload {
+                message: "No upload_id returned".to_string(),
+            })
+    }
+
+    async fn upload_part(
+        &self,
+        key: &str,
+        upload_id: &str,
+        part_number: u32,
+        data: Bytes,
+    ) -> Result<PartInfo, ObjectStoreError> {
+        let size = data.len() as u64;
+
+        let output = self.client
+            .upload_part()
+            .bucket(&self.config.bucket)
+            .key(key)
+            .upload_id(upload_id)
+            .part_number(part_number as i32)
+            .body(ByteStream::from(data))
+            .send()
+            .await
+            .map_err(|e| ObjectStoreError::from_provider(e, "S3", "upload_part"))?;
+
+        let etag = output.e_tag
+            .ok_or_else(|| ObjectStoreError::MultipartUpload {
+                message: "No ETag returned for part".to_string(),
+            })?;
+
+        Ok(PartInfo {
+            part_number,
+            etag,
+            size,
+        })
+    }
+
+    async fn complete_multipart_upload(
+        &self,
+        key: &str,
+        upload_id: &str,
+        parts: Vec<PartInfo>,
+    ) -> Result<(), ObjectStoreError> {
+        let completed_parts: Vec<CompletedPart> = parts
+            .into_iter()
+            .map(|p| {
+                CompletedPart::builder()
+                    .part_number(p.part_number as i32)
+                    .e_tag(p.etag)
+                    .build()
+            })
+            .collect();
+
+        let completed_upload = CompletedMultipartUpload::builder()
+            .set_parts(Some(completed_parts))
+            .build();
+
+        self.client
+            .complete_multipart_upload()
+            .bucket(&self.config.bucket)
+            .key(key)
+            .upload_id(upload_id)
+            .multipart_upload(completed_upload)
+            .send()
+            .await
+            .map_err(|e| ObjectStoreError::from_provider(e, "S3", "complete_multipart_upload"))?;
+
+        Ok(())
+    }
+
+    async fn abort_multipart_upload(
+        &self,
+        key: &str,
+        upload_id: &str,
+    ) -> Result<(), ObjectStoreError> {
+        self.client
+            .abort_multipart_upload()
+            .bucket(&self.config.bucket)
+            .key(key)
+            .upload_id(upload_id)
+            .send()
+            .await
+            .map_err(|e| ObjectStoreError::from_provider(e, "S3", "abort_multipart_upload"))?;
+
+        Ok(())
+    }
 }
 
 #[async_trait]
 impl ObjectStore for AwsS3ObjectStore {
-    async fn put_object(&self, key: &str, value: Bytes) -> Result<(), ObjectStoreError> {
-        self.put_object_ex(key, value, PutOptions::default()).await
-    }
-
-    async fn put_object_ex(
+    async fn put_object(
         &self,
         key: &str,
         value: Bytes,
-        options: PutOptions,
+        options: PutObjectOptions,
     ) -> Result<(), ObjectStoreError> {
         let mut request = self.client
             .put_object()
@@ -155,11 +327,7 @@ impl ObjectStore for AwsS3ObjectStore {
         Ok(())
     }
 
-    async fn get_object(&self, key: &str) -> Result<Bytes, ObjectStoreError> {
-        self.get_object_ex(key, GetOptions::default()).await
-    }
-
-    async fn get_object_ex(&self, key: &str, options: GetOptions) -> Result<Bytes, ObjectStoreError> {
+    async fn get_object(&self, key: &str, options: GetObjectOptions) -> Result<Bytes, ObjectStoreError> {
         let mut builder = self.client
             .get_object()
             .bucket(&self.config.bucket)
@@ -299,50 +467,24 @@ impl ObjectStore for AwsS3ObjectStore {
         size: u64,
         options: PutStreamOptions,
     ) -> Result<(), ObjectStoreError> {
-        // 读取所有数据到缓冲区（S3 SDK 需要知道完整大小）
-        let mut buffer = Vec::with_capacity(size as usize);
-        let mut total_read = 0u64;
+        // 初始化分片上传
+        let put_options = PutObjectOptions {
+            content_type: options.content_type.clone(),
+            metadata: options.metadata.clone(),
+        };
+        let upload_id = self.create_multipart_upload(key, put_options).await?;
 
-        loop {
-            let mut chunk = vec![0u8; 64 * 1024]; // 64KB chunks
-            let n = reader.read(&mut chunk).await?;
-            if n == 0 {
-                break;
-            }
-            buffer.extend_from_slice(&chunk[..n]);
-            total_read += n as u64;
+        // 使用内部函数处理上传逻辑，以便在出错时能够 abort
+        let result = self
+            .put_stream_multipart(key, &upload_id, &mut reader, size, &options)
+            .await;
 
-            // 报告进度
-            if let Some(ref callback) = options.progress_callback {
-                callback.on_progress(&TransferProgress {
-                    transferred_bytes: total_read,
-                    total_bytes: size,
-                });
-            }
+        if result.is_err() {
+            // 出错时取消分片上传（忽略取消错误）
+            let _ = self.abort_multipart_upload(key, &upload_id).await;
         }
 
-        let mut request = self.client
-            .put_object()
-            .bucket(&self.config.bucket)
-            .key(key)
-            .body(ByteStream::from(buffer));
-
-        if let Some(ct) = &options.content_type {
-            request = request.content_type(ct);
-        }
-
-        if let Some(metadata) = &options.metadata {
-            for (k, v) in metadata {
-                request = request.metadata(k, v);
-            }
-        }
-
-        request
-            .send()
-            .await
-            .map_err(|e| ObjectStoreError::from_provider(e, "S3", "put_stream"))?;
-
-        Ok(())
+        result
     }
 
     async fn get_stream(
@@ -356,7 +498,7 @@ impl ObjectStore for AwsS3ObjectStore {
             .bucket(&self.config.bucket)
             .key(key);
 
-        if let Some(range) = options.range.clone() {
+        if let Some(range) = &options.range {
             let range_header = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
             builder = builder.range(range_header);
         }
@@ -366,140 +508,11 @@ impl ObjectStore for AwsS3ObjectStore {
             .await
             .map_err(|e| ObjectStoreError::from_provider(e, "S3", "get_stream"))?;
 
-        let content_length = output.content_length.unwrap_or(0) as u64;
-        let mut byte_stream = output.body;
-        let mut total_written = 0u64;
+        let mut reader = output.body.into_async_read();
+        let total_written = io::copy(&mut reader, &mut writer).await
+            .map_err(|e| ObjectStoreError::Network(e.to_string()))?;
 
-        while let Some(chunk) = byte_stream.next().await {
-            let data = chunk.map_err(|e| ObjectStoreError::Network(e.to_string()))?;
-            writer.write_all(&data).await?;
-            total_written += data.len() as u64;
-
-            if let Some(ref callback) = options.progress_callback {
-                callback.on_progress(&TransferProgress {
-                    transferred_bytes: total_written,
-                    total_bytes: content_length,
-                });
-            }
-        }
-
-        writer.flush().await?;
         Ok(total_written)
-    }
-
-    // === 分片上传接口 ===
-
-    async fn create_multipart_upload(
-        &self,
-        key: &str,
-        options: PutOptions,
-    ) -> Result<String, ObjectStoreError> {
-        let mut request = self.client
-            .create_multipart_upload()
-            .bucket(&self.config.bucket)
-            .key(key);
-
-        if let Some(ct) = &options.content_type {
-            request = request.content_type(ct);
-        }
-
-        if let Some(metadata) = &options.metadata {
-            for (k, v) in metadata {
-                request = request.metadata(k, v);
-            }
-        }
-
-        let output = request
-            .send()
-            .await
-            .map_err(|e| ObjectStoreError::from_provider(e, "S3", "create_multipart_upload"))?;
-
-        output.upload_id
-            .ok_or_else(|| ObjectStoreError::MultipartUpload {
-                message: "No upload_id returned".to_string(),
-            })
-    }
-
-    async fn upload_part(
-        &self,
-        key: &str,
-        upload_id: &str,
-        part_number: u32,
-        data: Bytes,
-    ) -> Result<PartInfo, ObjectStoreError> {
-        let size = data.len() as u64;
-
-        let output = self.client
-            .upload_part()
-            .bucket(&self.config.bucket)
-            .key(key)
-            .upload_id(upload_id)
-            .part_number(part_number as i32)
-            .body(ByteStream::from(data))
-            .send()
-            .await
-            .map_err(|e| ObjectStoreError::from_provider(e, "S3", "upload_part"))?;
-
-        let etag = output.e_tag
-            .ok_or_else(|| ObjectStoreError::MultipartUpload {
-                message: "No ETag returned for part".to_string(),
-            })?;
-
-        Ok(PartInfo {
-            part_number,
-            etag,
-            size,
-        })
-    }
-
-    async fn complete_multipart_upload(
-        &self,
-        key: &str,
-        upload_id: &str,
-        parts: Vec<PartInfo>,
-    ) -> Result<(), ObjectStoreError> {
-        let completed_parts: Vec<CompletedPart> = parts
-            .into_iter()
-            .map(|p| {
-                CompletedPart::builder()
-                    .part_number(p.part_number as i32)
-                    .e_tag(p.etag)
-                    .build()
-            })
-            .collect();
-
-        let completed_upload = CompletedMultipartUpload::builder()
-            .set_parts(Some(completed_parts))
-            .build();
-
-        self.client
-            .complete_multipart_upload()
-            .bucket(&self.config.bucket)
-            .key(key)
-            .upload_id(upload_id)
-            .multipart_upload(completed_upload)
-            .send()
-            .await
-            .map_err(|e| ObjectStoreError::from_provider(e, "S3", "complete_multipart_upload"))?;
-
-        Ok(())
-    }
-
-    async fn abort_multipart_upload(
-        &self,
-        key: &str,
-        upload_id: &str,
-    ) -> Result<(), ObjectStoreError> {
-        self.client
-            .abort_multipart_upload()
-            .bucket(&self.config.bucket)
-            .key(key)
-            .upload_id(upload_id)
-            .send()
-            .await
-            .map_err(|e| ObjectStoreError::from_provider(e, "S3", "abort_multipart_upload"))?;
-
-        Ok(())
     }
 }
 

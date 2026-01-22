@@ -1,6 +1,6 @@
 // Options and result types for StoreManager operations
 
-use super::object_store_types::{DirectoryProgressCallback, DirectoryTransferResult, FailedFile, ProgressCallback};
+use super::object_store_types::{DirectoryProgressCallback, DirectoryTransferResult, FailedFile};
 use std::sync::Arc;
 
 // ============ Options ============
@@ -29,9 +29,6 @@ pub struct CpOptions {
     /// Exclude file pattern (glob)
     pub exclude: Option<String>,
 
-    /// Progress callback for single file operations
-    pub progress_callback: Option<Arc<dyn ProgressCallback>>,
-
     /// Progress callback for directory operations
     pub directory_progress_callback: Option<Arc<dyn DirectoryProgressCallback>>,
 }
@@ -46,10 +43,6 @@ impl std::fmt::Debug for CpOptions {
             .field("multipart_threshold", &self.multipart_threshold)
             .field("include", &self.include)
             .field("exclude", &self.exclude)
-            .field(
-                "progress_callback",
-                &self.progress_callback.as_ref().map(|_| "..."),
-            )
             .field(
                 "directory_progress_callback",
                 &self.directory_progress_callback.as_ref().map(|_| "..."),

@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Result};
 
 /// Supported cloud providers
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Provider {
     /// Amazon S3
     S3,

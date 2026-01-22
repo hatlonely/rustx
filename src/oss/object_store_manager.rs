@@ -72,8 +72,8 @@ impl ObjectStoreManager {
 
         // Find matching store configuration
         let store_config = self
-            .find_store_config(&uri.bucket)
-            .ok_or_else(|| anyhow!("No store configured for bucket: {}", uri.bucket))?;
+            .find_store_config(&uri.provider, &uri.bucket)
+            .ok_or_else(|| anyhow!("No store configured for provider:{}, bucket:{}", uri.provider.scheme(), uri.bucket))?;
 
         // Create store instance
         let store = create_store_from_config(store_config)?;
@@ -85,15 +85,21 @@ impl ObjectStoreManager {
         Ok(store)
     }
 
-    /// Find store configuration by bucket name
-    fn find_store_config(&self, bucket: &str) -> Option<&TypeOptions> {
+    /// Find store configuration by provider and bucket name
+    fn find_store_config(&self, provider: &Provider, bucket: &str) -> Option<&TypeOptions> {
         self.config.stores.iter().find(|store| {
-            store
+            // Check if provider matches
+            let type_matches = type_name_to_provider(&store.type_name) == Some(*provider);
+
+            // Check if bucket matches
+            let bucket_matches = store
                 .options
                 .get("bucket")
                 .and_then(|v| v.as_str())
                 .map(|b| b == bucket)
-                .unwrap_or(false)
+                .unwrap_or(false);
+
+            type_matches && bucket_matches
         })
     }
 
@@ -335,7 +341,6 @@ impl ObjectStoreManager {
             multipart_concurrency: options
                 .concurrency
                 .unwrap_or(self.config.defaults.concurrency),
-            progress_callback: options.progress_callback.clone(),
         };
 
         store.put_file(&key, local_path, put_options).await?;
@@ -425,7 +430,6 @@ impl ObjectStoreManager {
 
         let get_options = GetFileOptions {
             overwrite: options.overwrite,
-            progress_callback: options.progress_callback.clone(),
         };
 
         store
@@ -520,7 +524,6 @@ impl ObjectStoreManager {
             // Download the file
             let get_options = GetFileOptions {
                 overwrite: options.overwrite,
-                progress_callback: None,
             };
 
             match store.get_file(&obj.key, &file_path, get_options).await {
@@ -565,7 +568,7 @@ impl ObjectStoreManager {
         }
     }
 
-    /// Copy a single file between remote locations
+    /// Copy a single file between remote locations using streaming
     async fn copy_remote_file(
         &self,
         src_uri: &OssUri,
@@ -574,6 +577,8 @@ impl ObjectStoreManager {
         src_store: &dyn ObjectStore,
         dst_store: &dyn ObjectStore,
     ) -> Result<CpResult> {
+        use super::object_store_types::{GetStreamOptions, PutStreamOptions};
+
         let dst_key = if dst_uri.is_directory() {
             let file_name = src_uri
                 .file_name()
@@ -590,12 +595,38 @@ impl ObjectStoreManager {
             }
         }
 
-        // Get file content from source
-        let data = src_store.get_object(&src_uri.key).await?;
-        let size = data.len() as u64;
+        // Get source file size
+        let src_meta = src_store
+            .head_object(&src_uri.key)
+            .await?
+            .ok_or_else(|| anyhow!("Source file not found: {}", src_uri.key))?;
+        let size = src_meta.size;
 
-        // Upload to destination
-        dst_store.put_object(&dst_key, data).await?;
+        // Use a pipe to connect get_stream and put_stream
+        // Buffer size: 16MB to allow some buffering between download and upload
+        let (reader, writer) = tokio::io::duplex(16 * 1024 * 1024);
+
+        // Prepare options
+        let get_options = GetStreamOptions::default();
+        let put_options = PutStreamOptions {
+            content_type: src_meta.content_type,
+            ..Default::default()
+        };
+
+        // Run download and upload concurrently
+        // Using try_join to run both operations in parallel on the same task
+        let src_key = src_uri.key.clone();
+        let download_future = src_store.get_stream(&src_key, Box::new(writer), get_options);
+        let upload_future = dst_store.put_stream(&dst_key, Box::new(reader), size, put_options);
+
+        let (download_result, upload_result) = tokio::try_join!(
+            async { download_future.await.map_err(|e| anyhow!("Download failed: {}", e)) },
+            async { upload_future.await.map_err(|e| anyhow!("Upload failed: {}", e)) }
+        )?;
+
+        // Both operations succeeded
+        let _ = download_result; // bytes downloaded
+        let _ = upload_result;   // unit
 
         Ok(CpResult::single_success(size))
     }
@@ -651,23 +682,14 @@ impl ObjectStoreManager {
                 }
             }
 
-            // Copy the object
-            match src_store.get_object(&obj.key).await {
-                Ok(data) => {
-                    let size = data.len() as u64;
-                    match dst_store.put_object(&dst_key, data).await {
-                        Ok(_) => {
-                            result.success_count += 1;
-                            result.total_bytes += size;
-                        }
-                        Err(e) => {
-                            result.failed_count += 1;
-                            result.failed_files.push(FailedFile {
-                                path: dst_key,
-                                error: e.to_string(),
-                            });
-                        }
-                    }
+            // Copy the object using streaming
+            match self
+                .copy_single_object(src_store, dst_store, &obj.key, &dst_key, obj.size)
+                .await
+            {
+                Ok(size) => {
+                    result.success_count += 1;
+                    result.total_bytes += size;
                 }
                 Err(e) => {
                     result.failed_count += 1;
@@ -680,6 +702,35 @@ impl ObjectStoreManager {
         }
 
         Ok(result)
+    }
+
+    /// Copy a single object between remote locations using streaming
+    async fn copy_single_object(
+        &self,
+        src_store: &dyn ObjectStore,
+        dst_store: &dyn ObjectStore,
+        src_key: &str,
+        dst_key: &str,
+        size: u64,
+    ) -> Result<u64> {
+        use super::object_store_types::{GetStreamOptions, PutStreamOptions};
+
+        // Use a pipe to connect get_stream and put_stream
+        let (reader, writer) = tokio::io::duplex(16 * 1024 * 1024);
+
+        let get_options = GetStreamOptions::default();
+        let put_options = PutStreamOptions::default();
+
+        let src_key = src_key.to_string();
+        let download_future = src_store.get_stream(&src_key, Box::new(writer), get_options);
+        let upload_future = dst_store.put_stream(dst_key, Box::new(reader), size, put_options);
+
+        tokio::try_join!(
+            async { download_future.await.map_err(|e| anyhow!("Download failed: {}", e)) },
+            async { upload_future.await.map_err(|e| anyhow!("Upload failed: {}", e)) }
+        )?;
+
+        Ok(size)
     }
 
     /// Delete a single object
@@ -770,6 +821,16 @@ impl ObjectStoreManager {
 fn create_store_from_config(config: &TypeOptions) -> Result<Box<dyn ObjectStore>> {
     create_trait_from_type_options::<dyn ObjectStore>(config)
         .map_err(|e| anyhow!("Failed to create ObjectStore: {}", e))
+}
+
+/// Map type name to provider
+fn type_name_to_provider(type_name: &str) -> Option<Provider> {
+    match type_name {
+        "AwsS3ObjectStore" => Some(Provider::S3),
+        "AliOssObjectStore" => Some(Provider::Oss),
+        "GcpGcsObjectStore" => Some(Provider::Gcs),
+        _ => None,
+    }
 }
 
 // Implement From trait for configuration system integration

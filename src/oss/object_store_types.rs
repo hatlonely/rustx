@@ -15,15 +15,14 @@ pub struct ObjectMeta {
 
 /// 上传选项
 #[derive(Debug, Clone, SmartDefault)]
-pub struct PutOptions {
+pub struct PutObjectOptions {
     pub content_type: Option<String>,
     pub metadata: Option<HashMap<String, String>>,
-    pub tags: Option<HashMap<String, String>>,
 }
 
 /// 获取选项
 #[derive(Debug, Clone, SmartDefault)]
-pub struct GetOptions {
+pub struct GetObjectOptions {
     pub range: Option<std::ops::Range<u64>>,
 }
 
@@ -35,13 +34,6 @@ pub struct PartInfo {
     pub size: u64,
 }
 
-/// 传输进度信息
-#[derive(Debug, Clone)]
-pub struct TransferProgress {
-    pub transferred_bytes: u64,
-    pub total_bytes: u64,
-}
-
 /// 目录传输进度信息
 #[derive(Debug, Clone)]
 pub struct DirectoryTransferProgress {
@@ -50,11 +42,6 @@ pub struct DirectoryTransferProgress {
     pub total_files: usize,
     pub transferred_bytes: u64,
     pub total_bytes: u64,
-}
-
-/// 进度回调 trait
-pub trait ProgressCallback: Send + Sync {
-    fn on_progress(&self, progress: &TransferProgress);
 }
 
 /// 目录进度回调 trait
@@ -68,8 +55,12 @@ pub trait DirectoryProgressCallback: Send + Sync {
 pub struct PutStreamOptions {
     pub content_type: Option<String>,
     pub metadata: Option<HashMap<String, String>>,
-    /// 进度回调
-    pub progress_callback: Option<Arc<dyn ProgressCallback>>,
+    /// 分片大小（默认 8MB）
+    #[default = 8388608]
+    pub part_size: usize,
+    /// 分片上传并发数
+    #[default = 4]
+    pub multipart_concurrency: usize,
 }
 
 impl std::fmt::Debug for PutStreamOptions {
@@ -77,7 +68,8 @@ impl std::fmt::Debug for PutStreamOptions {
         f.debug_struct("PutStreamOptions")
             .field("content_type", &self.content_type)
             .field("metadata", &self.metadata)
-            .field("progress_callback", &self.progress_callback.as_ref().map(|_| "..."))
+            .field("part_size", &self.part_size)
+            .field("multipart_concurrency", &self.multipart_concurrency)
             .finish()
     }
 }
@@ -86,15 +78,12 @@ impl std::fmt::Debug for PutStreamOptions {
 #[derive(Clone, SmartDefault)]
 pub struct GetStreamOptions {
     pub range: Option<std::ops::Range<u64>>,
-    /// 进度回调
-    pub progress_callback: Option<Arc<dyn ProgressCallback>>,
 }
 
 impl std::fmt::Debug for GetStreamOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GetStreamOptions")
             .field("range", &self.range)
-            .field("progress_callback", &self.progress_callback.as_ref().map(|_| "..."))
             .finish()
     }
 }
@@ -113,8 +102,6 @@ pub struct PutFileOptions {
     /// 分片上传并发数
     #[default = 4]
     pub multipart_concurrency: usize,
-    /// 进度回调
-    pub progress_callback: Option<Arc<dyn ProgressCallback>>,
 }
 
 impl std::fmt::Debug for PutFileOptions {
@@ -125,7 +112,6 @@ impl std::fmt::Debug for PutFileOptions {
             .field("multipart_threshold", &self.multipart_threshold)
             .field("part_size", &self.part_size)
             .field("multipart_concurrency", &self.multipart_concurrency)
-            .field("progress_callback", &self.progress_callback.as_ref().map(|_| "..."))
             .finish()
     }
 }
@@ -136,15 +122,12 @@ pub struct GetFileOptions {
     /// 是否覆盖已存在的文件
     #[default = false]
     pub overwrite: bool,
-    /// 进度回调
-    pub progress_callback: Option<Arc<dyn ProgressCallback>>,
 }
 
 impl std::fmt::Debug for GetFileOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GetFileOptions")
             .field("overwrite", &self.overwrite)
-            .field("progress_callback", &self.progress_callback.as_ref().map(|_| "..."))
             .finish()
     }
 }

@@ -1,22 +1,8 @@
 // Progress bar display for oss-tool
 
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use rustx::oss::{DirectoryProgressCallback, DirectoryTransferProgress, ProgressCallback, TransferProgress};
-use std::sync::Arc;
-
-/// Create a progress bar for single file transfer
-pub fn create_file_progress_bar(total_bytes: u64, file_name: &str) -> ProgressBar {
-    let pb = ProgressBar::new(total_bytes);
-    pb.set_style(
-        ProgressStyle::with_template(
-            "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}) {msg}",
-        )
-        .unwrap()
-        .progress_chars("#>-"),
-    );
-    pb.set_message(file_name.to_string());
-    pb
-}
+use indicatif::{ProgressBar, ProgressStyle};
+use rustx::oss::{DirectoryProgressCallback, DirectoryTransferProgress};
+use std::sync::Mutex;
 
 /// Create a progress bar for directory transfer
 pub fn create_directory_progress_bar(total_files: usize) -> ProgressBar {
@@ -31,40 +17,61 @@ pub fn create_directory_progress_bar(total_files: usize) -> ProgressBar {
     pb
 }
 
-/// Progress callback wrapper for single file operations
-pub struct FileProgressBar {
+/// Progress callback wrapper for directory operations
+pub struct DirectoryProgressBar {
     bar: ProgressBar,
 }
 
-impl FileProgressBar {
-    pub fn new(total_bytes: u64, file_name: &str) -> Self {
+/// Lazy progress callback that initializes on first progress call
+pub struct LazyDirectoryProgressBar {
+    inner: Mutex<Option<DirectoryProgressBar>>,
+}
+
+impl LazyDirectoryProgressBar {
+    pub fn new() -> Self {
         Self {
-            bar: create_file_progress_bar(total_bytes, file_name),
+            inner: Mutex::new(None),
         }
     }
 
     pub fn finish(&self) {
-        self.bar.finish_with_message("done");
+        let inner = self.inner.lock().unwrap();
+        if let Some(ref bar) = *inner {
+            bar.finish();
+        }
     }
 }
 
-impl ProgressCallback for FileProgressBar {
-    fn on_progress(&self, progress: &TransferProgress) {
-        self.bar.set_position(progress.transferred_bytes);
-    }
-}
+impl DirectoryProgressCallback for LazyDirectoryProgressBar {
+    fn on_progress(&self, progress: &DirectoryTransferProgress) {
+        let mut inner = self.inner.lock().unwrap();
 
-/// Progress callback wrapper for directory operations
-pub struct DirectoryProgressBar {
-    bar: ProgressBar,
-    total_bytes: u64,
+        // Initialize on first call
+        if inner.is_none() {
+            *inner = Some(DirectoryProgressBar::new(
+                progress.total_files,
+                progress.total_bytes,
+            ));
+        }
+
+        if let Some(ref bar) = *inner {
+            bar.on_progress(progress);
+        }
+    }
+
+    fn on_file_complete(&self, key: &str, success: bool, error_message: Option<&str>) {
+        let inner = self.inner.lock().unwrap();
+        if let Some(ref bar) = *inner {
+            bar.on_file_complete(key, success, error_message);
+        }
+    }
 }
 
 impl DirectoryProgressBar {
-    pub fn new(total_files: usize, total_bytes: u64) -> Self {
+    pub fn new(total_files: usize, _total_bytes: u64) -> Self {
         let bar = create_directory_progress_bar(total_files);
         bar.set_length(total_files as u64);
-        Self { bar, total_bytes }
+        Self { bar }
     }
 
     pub fn finish(&self) {
@@ -91,35 +98,6 @@ impl DirectoryProgressCallback for DirectoryProgressBar {
                 self.bar.println(format!("Failed: {}", key));
             }
         }
-    }
-}
-
-/// Multi-progress manager for concurrent operations
-pub struct MultiProgressManager {
-    multi: MultiProgress,
-}
-
-impl MultiProgressManager {
-    pub fn new() -> Self {
-        Self {
-            multi: MultiProgress::new(),
-        }
-    }
-
-    pub fn add_file_progress(&self, total_bytes: u64, file_name: &str) -> Arc<FileProgressBar> {
-        let bar = create_file_progress_bar(total_bytes, file_name);
-        let bar = self.multi.add(bar);
-        Arc::new(FileProgressBar { bar })
-    }
-
-    pub fn add_directory_progress(
-        &self,
-        total_files: usize,
-        total_bytes: u64,
-    ) -> Arc<DirectoryProgressBar> {
-        let bar = create_directory_progress_bar(total_files);
-        let bar = self.multi.add(bar);
-        Arc::new(DirectoryProgressBar { bar, total_bytes })
     }
 }
 

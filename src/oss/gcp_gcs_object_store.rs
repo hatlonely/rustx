@@ -1,6 +1,5 @@
 // API 文档参考：
-// google-cloud-storage crate (v0.6.0): https://docs.rs/google-cloud-storage/0.6.0/google_cloud_storage/
-// Client API 文档: https://docs.rs/google-cloud-storage/0.6.0/google_cloud_storage/client/struct.Client.html
+// google-cloud-storage crate (v1.6.0): https://docs.rs/google-cloud-storage/1.6.0/google_cloud_storage/
 // GCP 官方文档: https://cloud.google.com/storage/docs
 // GCP Rust SDK: https://docs.cloud.google.com/rust
 
@@ -9,12 +8,13 @@ use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use std::sync::Arc;
+use std::future::Future;
 use garde::Validate;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::oss::{
-    ObjectStore, ObjectStoreError, ObjectMeta, PutOptions, GetOptions,
-    PutStreamOptions, GetStreamOptions, PartInfo, TransferProgress,
+    ObjectStore, ObjectStoreError, ObjectMeta, PutObjectOptions, GetObjectOptions,
+    PutStreamOptions, GetStreamOptions,
 };
 
 /// GCP GCS 配置
@@ -34,10 +34,6 @@ pub struct GcpGcsObjectStoreConfig {
     #[default = ""]
     pub bucket: String,
 
-    /// GCP 项目 ID（可选，通常从凭证文件中自动获取）
-    #[garde(skip)]
-    pub project_id: Option<String>,
-
     /// 服务账号密钥文件路径（优先级 2）
     #[garde(skip)]
     pub service_account_key_path: Option<String>,
@@ -53,7 +49,10 @@ pub struct GcpGcsObjectStoreConfig {
 
 /// GCP GCS 实现
 pub struct GcpGcsObjectStore {
-    client: Arc<google_cloud_storage::client::Client>,
+    /// Storage 客户端 - 用于对象读写
+    storage: Arc<google_cloud_storage::client::Storage>,
+    /// StorageControl 客户端 - 用于元数据和管理操作
+    control: Arc<google_cloud_storage::client::StorageControl>,
     config: GcpGcsObjectStoreConfig,
 }
 
@@ -65,153 +64,248 @@ impl GcpGcsObjectStore {
             return Err(ObjectStoreError::Configuration(format!("{}", errors)));
         }
 
-        // 创建 GCS 客户端（同步创建，使用 runtime blocker）
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| ObjectStoreError::Configuration(
-                format!("创建 runtime 失败: {}", e)
-            ))?;
-
-        let client = rt.block_on(async {
-            Self::create_client(&config).await
-        })?;
+        // 尝试获取当前 runtime 的 handle，如果不存在则创建新的
+        let (storage, control) = if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            // 已经在 runtime 中，使用 block_in_place 避免阻塞
+            tokio::task::block_in_place(|| {
+                handle.block_on(async {
+                    Self::create_clients(&config).await
+                })
+            })
+        } else {
+            // 不在 runtime 中，创建新的 runtime
+            let rt = tokio::runtime::Runtime::new()
+                .map_err(|e| ObjectStoreError::Configuration(
+                    format!("创建 runtime 失败: {}", e)
+                ))?;
+            rt.block_on(async {
+                Self::create_clients(&config).await
+            })
+        }?;
 
         Ok(Self {
-            client: Arc::new(client),
+            storage: Arc::new(storage),
+            control: Arc::new(control),
             config,
         })
     }
 
-    async fn create_client(config: &GcpGcsObjectStoreConfig) -> Result<google_cloud_storage::client::Client, ObjectStoreError> {
-        use google_cloud_storage::client::{Client, ClientConfig};
-        use google_cloud_auth::credentials::CredentialsFile;
-        use google_cloud_auth::Project;
+    /// 创建 Storage 和 StorageControl 客户端
+    async fn create_clients(config: &GcpGcsObjectStoreConfig) -> Result<(google_cloud_storage::client::Storage, google_cloud_storage::client::StorageControl), ObjectStoreError> {
+        use google_cloud_storage::client::{Storage, StorageControl};
 
-        // 构建客户端配置
-        let mut client_config = ClientConfig::default();
+        // 创建 Storage 客户端
+        let mut storage_builder = Storage::builder();
 
-        // 配置凭证
+        // 配置凭证 - Storage
         if let Some(ref json_content) = config.service_account_key_json {
-            // 优先使用内联的服务账号 JSON
-            let credentials_file: CredentialsFile = serde_json::from_str(json_content)
-                .map_err(|e| ObjectStoreError::Configuration(
-                    format!("解析服务账号 JSON 失败: {}", e)
-                ))?;
-            client_config.project = Some(Project::FromFile(Box::new(credentials_file)));
+            let json_value: serde_json::Value = serde_json::from_str(json_content)
+                .map_err(|e| ObjectStoreError::Configuration(format!("解析服务账号 JSON 失败: {}", e)))?;
+            let creds = google_cloud_auth::credentials::service_account::Builder::new(json_value)
+                .build()
+                .map_err(|e| ObjectStoreError::Configuration(format!("创建服务账号凭证失败: {}", e)))?;
+            storage_builder = storage_builder.with_credentials(creds);
         } else if let Some(ref key_path) = config.service_account_key_path {
-            // 使用服务账号密钥文件路径
             let json_content = std::fs::read_to_string(key_path)
-                .map_err(|e| ObjectStoreError::Configuration(
-                    format!("读取服务账号密钥文件失败: {}", e)
-                ))?;
-            let credentials_file: CredentialsFile = serde_json::from_str(&json_content)
-                .map_err(|e| ObjectStoreError::Configuration(
-                    format!("解析服务账号密钥文件失败: {}", e)
-                ))?;
-            client_config.project = Some(Project::FromFile(Box::new(credentials_file)));
+                .map_err(|e| ObjectStoreError::Configuration(format!("读取服务账号密钥文件失败: {}", e)))?;
+            let json_value: serde_json::Value = serde_json::from_str(&json_content)
+                .map_err(|e| ObjectStoreError::Configuration(format!("解析服务账号密钥文件失败: {}", e)))?;
+            let creds = google_cloud_auth::credentials::service_account::Builder::new(json_value)
+                .build()
+                .map_err(|e| ObjectStoreError::Configuration(format!("创建服务账号凭证失败: {}", e)))?;
+            storage_builder = storage_builder.with_credentials(creds);
         } else {
-            // 使用默认凭证（从环境变量 GOOGLE_APPLICATION_CREDENTIALS 或默认位置读取）
-            let credentials_file = CredentialsFile::new()
-                .await
-                .map_err(|e| ObjectStoreError::Configuration(
-                    format!("加载默认凭证失败: {}", e)
-                ))?;
-            client_config.project = Some(Project::FromFile(Box::new(credentials_file)));
+            let creds = google_cloud_auth::credentials::Builder::default()
+                .build()
+                .map_err(|e| ObjectStoreError::Configuration(format!("加载默认凭证失败: {}", e)))?;
+            storage_builder = storage_builder.with_credentials(creds);
         }
 
         // 设置自定义端点（用于本地模拟器）
         if let Some(ref endpoint) = config.endpoint {
-            client_config.storage_endpoint = endpoint.clone();
+            storage_builder = storage_builder.with_endpoint(endpoint);
         }
 
-        // 创建客户端
-        Client::new(client_config)
+        let storage = storage_builder.build()
             .await
-            .map_err(|e| ObjectStoreError::Configuration(
-                format!("创建 GCS 客户端失败: {}", e)
-            ))
+            .map_err(|e| ObjectStoreError::Configuration(format!("创建 Storage 客户端失败: {}", e)))?;
+
+        // 创建 StorageControl 客户端
+        let mut control_builder = StorageControl::builder();
+
+        // 配置凭证 - StorageControl
+        if let Some(ref json_content) = config.service_account_key_json {
+            let json_value: serde_json::Value = serde_json::from_str(json_content)
+                .map_err(|e| ObjectStoreError::Configuration(format!("解析服务账号 JSON 失败: {}", e)))?;
+            let creds = google_cloud_auth::credentials::service_account::Builder::new(json_value)
+                .build()
+                .map_err(|e| ObjectStoreError::Configuration(format!("创建服务账号凭证失败: {}", e)))?;
+            control_builder = control_builder.with_credentials(creds);
+        } else if let Some(ref key_path) = config.service_account_key_path {
+            let json_content = std::fs::read_to_string(key_path)
+                .map_err(|e| ObjectStoreError::Configuration(format!("读取服务账号密钥文件失败: {}", e)))?;
+            let json_value: serde_json::Value = serde_json::from_str(&json_content)
+                .map_err(|e| ObjectStoreError::Configuration(format!("解析服务账号密钥文件失败: {}", e)))?;
+            let creds = google_cloud_auth::credentials::service_account::Builder::new(json_value)
+                .build()
+                .map_err(|e| ObjectStoreError::Configuration(format!("创建服务账号凭证失败: {}", e)))?;
+            control_builder = control_builder.with_credentials(creds);
+        } else {
+            let creds = google_cloud_auth::credentials::Builder::default()
+                .build()
+                .map_err(|e| ObjectStoreError::Configuration(format!("加载默认凭证失败: {}", e)))?;
+            control_builder = control_builder.with_credentials(creds);
+        }
+
+        // 设置自定义端点（用于本地模拟器）
+        if let Some(ref endpoint) = config.endpoint {
+            control_builder = control_builder.with_endpoint(endpoint);
+        }
+
+        let control = control_builder.build()
+            .await
+            .map_err(|e| ObjectStoreError::Configuration(format!("创建 StorageControl 客户端失败: {}", e)))?;
+
+        Ok((storage, control))
+    }
+
+    /// 获取完整的 bucket 路径
+    fn bucket_path(&self) -> String {
+        format!("projects/_/buckets/{}", self.config.bucket)
+    }
+}
+
+/// 自定义 StreamingSource 实现，包装 AsyncRead
+/// 使用 tokio::sync::Mutex 使结构体满足 Sync 要求
+struct AsyncReadSource {
+    reader: tokio::sync::Mutex<Box<dyn AsyncRead + Send + Unpin>>,
+    size: u64,
+    chunk_size: usize,
+    total_read: std::sync::atomic::AtomicU64,
+}
+
+impl AsyncReadSource {
+    fn new(
+        reader: Box<dyn AsyncRead + Send + Unpin>,
+        size: u64,
+        chunk_size: usize,
+    ) -> Self {
+        Self {
+            reader: tokio::sync::Mutex::new(reader),
+            size,
+            chunk_size,
+            total_read: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+}
+
+impl google_cloud_storage::streaming_source::StreamingSource for AsyncReadSource {
+    type Error = std::io::Error;
+
+    fn next(&mut self) -> impl Future<Output = Option<Result<Bytes, Self::Error>>> + Send {
+        async move {
+            let mut reader = self.reader.lock().await;
+            let mut buffer = vec![0u8; self.chunk_size];
+            let mut buffer_len = 0;
+
+            // 读取一个 chunk
+            while buffer_len < self.chunk_size {
+                match reader.read(&mut buffer[buffer_len..]).await {
+                    Ok(0) => break, // EOF
+                    Ok(n) => buffer_len += n,
+                    Err(e) => return Some(Err(e)),
+                }
+            }
+
+            if buffer_len == 0 {
+                return None; // 流结束
+            }
+
+            buffer.truncate(buffer_len);
+            self.total_read.fetch_add(buffer_len as u64, std::sync::atomic::Ordering::Relaxed);
+            Some(Ok(Bytes::from(buffer)))
+        }
+    }
+
+    fn size_hint(&self) -> impl Future<Output = Result<google_cloud_storage::streaming_source::SizeHint, Self::Error>> + Send {
+        let size = self.size;
+        async move {
+            Ok(google_cloud_storage::streaming_source::SizeHint::with_exact(size))
+        }
     }
 }
 
 #[async_trait]
 impl ObjectStore for GcpGcsObjectStore {
-    async fn put_object(&self, key: &str, value: Bytes) -> Result<(), ObjectStoreError> {
-        self.put_object_ex(key, value, PutOptions::default()).await
-    }
-
-    // 上传 API: https://docs.rs/google-cloud-storage/0.6.0/google_cloud_storage/client/struct.Client.html#method.upload_object
-    async fn put_object_ex(
+    async fn put_object(
         &self,
         key: &str,
         value: Bytes,
-        options: PutOptions,
+        options: PutObjectOptions,
     ) -> Result<(), ObjectStoreError> {
-        use google_cloud_storage::http::objects::upload::UploadObjectRequest;
-
         let content_type = options.content_type.as_deref()
             .unwrap_or("application/octet-stream");
 
-        let request = UploadObjectRequest {
-            bucket: self.config.bucket.clone(),
-            name: key.to_string(),
-            ..Default::default()
-        };
+        let mut write_request = self.storage
+            .write_object(&self.bucket_path(), key, value)
+            .set_content_type(content_type);
 
-        self.client
-            .upload_object(&request, value.as_ref(), content_type, None)
+        if let Some(metadata) = &options.metadata {
+            let metadata_vec: Vec<(&String, &String)> = metadata.iter().collect();
+            write_request = write_request.set_metadata(metadata_vec);
+        }
+
+        write_request
+            .send_buffered()
             .await
-            .map_err(|e| ObjectStoreError::from_provider(e, "GCP GCS", "upload_object"))?;
+            .map_err(|e| ObjectStoreError::from_provider(e, "GCP GCS", "put_object"))?;
 
         Ok(())
     }
 
-    // 下载 API: https://docs.rs/google-cloud-storage/0.6.0/google_cloud_storage/client/struct.Client.html#method.download_object
-    async fn get_object(&self, key: &str) -> Result<Bytes, ObjectStoreError> {
-        self.get_object_ex(key, GetOptions::default()).await
-    }
+    async fn get_object(
+        &self,
+        key: &str,
+        options: GetObjectOptions,
+    ) -> Result<Bytes, ObjectStoreError> {
+        use google_cloud_storage::model_ext::ReadRange;
 
-    // 范围下载 API (使用 Range 结构体): https://docs.rs/google-cloud-storage/0.6.0/src/google_cloud_storage/http/objects/download.rs.html
-    async fn get_object_ex(&self, key: &str, options: GetOptions) -> Result<Bytes, ObjectStoreError> {
-        use google_cloud_storage::http::objects::get::GetObjectRequest;
-        use google_cloud_storage::http::objects::download::Range;
+        let key_clone = key.to_string();
 
-        let gcs_range = if let Some(range) = options.range {
-            Range(
-                Some(range.start),
-                Some(range.end.saturating_sub(1)),
-            )
-        } else {
-            Range::default()
-        };
+        let mut builder = self.storage.read_object(&self.bucket_path(), key);
 
-        let request = GetObjectRequest {
-            bucket: self.config.bucket.clone(),
-            object: key.to_string(),
-            ..Default::default()
-        };
+        // 设置读取范围
+        if let Some(range) = &options.range {
+            builder = builder.set_read_range(ReadRange::segment(range.start, range.end - range.start));
+        }
 
-        let data = self.client
-            .download_object(&request, &gcs_range, None)
+        let mut reader = builder
+            .send()
             .await
             .map_err(|e| {
-                // TODO: 更精确的错误判断
-                ObjectStoreError::from_provider(e, "GCP GCS", "download_object_ex")
+                let error_msg = format!("{:?}", e);
+                if error_msg.contains("NotFound") || error_msg.contains("404") {
+                    ObjectStoreError::NotFound { key: key_clone.clone() }
+                } else {
+                    ObjectStoreError::from_provider(e, "GCP GCS", "get_object")
+                }
             })?;
+
+        let mut data = Vec::new();
+        while let Some(chunk) = reader.next().await.transpose()
+            .map_err(|e| ObjectStoreError::from_provider(e, "GCP GCS", "get_object"))? {
+            data.extend_from_slice(&chunk);
+        }
 
         Ok(Bytes::from(data))
     }
 
-    // 删除 API: https://docs.rs/google-cloud-storage/0.6.0/google_cloud_storage/client/struct.Client.html#method.delete_object
     async fn delete_object(&self, key: &str) -> Result<(), ObjectStoreError> {
-        use google_cloud_storage::http::objects::delete::DeleteObjectRequest;
-
-        let request = DeleteObjectRequest {
-            bucket: self.config.bucket.clone(),
-            object: key.to_string(),
-            ..Default::default()
-        };
-
-        self.client
-            .delete_object(&request, None)
+        self.control
+            .delete_object()
+            .set_bucket(&self.bucket_path())
+            .set_object(key)
+            .send()
             .await
             .map_err(|e| ObjectStoreError::from_provider(e, "GCP GCS", "delete_object"))?;
 
@@ -219,91 +313,105 @@ impl ObjectStore for GcpGcsObjectStore {
     }
 
     async fn head_object(&self, key: &str) -> Result<Option<ObjectMeta>, ObjectStoreError> {
-        use google_cloud_storage::http::objects::get::GetObjectRequest;
+        // 使用 StorageControl.get_object() 获取元数据
+        let result = self.control
+            .get_object()
+            .set_bucket(&self.bucket_path())
+            .set_object(key)
+            .send()
+            .await;
 
-        let request = GetObjectRequest {
-            bucket: self.config.bucket.clone(),
-            object: key.to_string(),
-            ..Default::default()
-        };
-
-        match self.client.get_object(&request, None).await {
+        match result {
             Ok(obj) => {
-                let last_modified = obj.updated
-                    .map(|dt| {
-                        chrono::DateTime::from_timestamp(dt.timestamp(), dt.timestamp_subsec_nanos())
-                            .unwrap_or_else(|| chrono::Utc::now())
+                // 将 wkt::Timestamp 转换为 chrono::DateTime<Utc>
+                let last_modified = obj.update_time
+                    .map(|t| {
+                        chrono::DateTime::from_timestamp(t.seconds(), t.nanos() as u32)
+                            .unwrap_or_else(chrono::Utc::now)
                     })
                     .unwrap_or_else(chrono::Utc::now);
 
                 Ok(Some(ObjectMeta {
-                    key: obj.name,
+                    key: obj.name.clone(),
                     size: obj.size as u64,
                     last_modified,
-                    etag: Some(obj.etag),
-                    content_type: obj.content_type,
+                    etag: if obj.etag.is_empty() { None } else { Some(obj.etag.clone()) },
+                    content_type: if obj.content_type.is_empty() { None } else { Some(obj.content_type.clone()) },
                 }))
             }
             Err(e) => {
-                // 检查是否为 NotFound 错误
                 let error_msg = format!("{:?}", e);
-                if error_msg.contains("notFound") || error_msg.contains("404") {
+                if error_msg.contains("NotFound") || error_msg.contains("404") {
                     Ok(None)
                 } else {
-                    Err(ObjectStoreError::from_provider(e, "GCP GCS", "get_object"))
+                    Err(ObjectStoreError::from_provider(e, "GCP GCS", "head_object"))
                 }
             }
         }
     }
 
-    // 列举 API: https://docs.rs/google-cloud-storage/0.6.0/google_cloud_storage/client/struct.Client.html#method.list_objects
     async fn list_objects(
         &self,
         prefix: Option<&str>,
         max_keys: Option<usize>,
     ) -> Result<Vec<ObjectMeta>, ObjectStoreError> {
-        use google_cloud_storage::http::objects::list::ListObjectsRequest;
-
         let mut result = Vec::new();
-        let mut page_token = None;
+        let mut page_token: Option<String> = None;
         let mut remaining = max_keys.unwrap_or(usize::MAX);
 
         loop {
-            let request = ListObjectsRequest {
-                bucket: self.config.bucket.clone(),
-                prefix: prefix.map(|p| p.to_string()),
-                page_token: page_token.clone(),
-                max_results: Some(remaining.min(1000) as i32),
-                ..Default::default()
-            };
+            let mut builder = self.control
+                .list_objects()
+                .set_parent(&self.bucket_path());
 
-            let response = self.client
-                .list_objects(&request, None)
+            if let Some(p) = prefix {
+                builder = builder.set_prefix(p);
+            }
+
+            // 设置分页大小（最多 1000 个）
+            let page_size = remaining.min(1000) as i32;
+            builder = builder.set_page_size(page_size);
+
+            // 设置分页 token
+            if let Some(ref token) = page_token {
+                builder = builder.set_page_token(token);
+            }
+
+            let response = builder
+                .send()
                 .await
                 .map_err(|e| ObjectStoreError::from_provider(e, "GCP GCS", "list_objects"))?;
 
-            if let Some(items) = response.items {
-                for item in items {
-                    if remaining == 0 {
-                        break;
-                    }
-
-                    result.push(ObjectMeta {
-                        key: item.name,
-                        size: item.size as u64,
-                        last_modified: item.updated.map(|dt| {
-                            chrono::DateTime::from_timestamp(dt.timestamp(), dt.timestamp_subsec_nanos())
-                                .unwrap_or_else(|| chrono::Utc::now())
-                        }).unwrap_or_else(|| chrono::Utc::now()),
-                        etag: Some(item.etag),
-                        content_type: item.content_type,
-                    });
-
-                    remaining = remaining.saturating_sub(1);
+            for obj in response.objects {
+                if remaining == 0 {
+                    break;
                 }
+
+                // 将 wkt::Timestamp 转换为 chrono::DateTime<Utc>
+                let last_modified = obj.update_time
+                    .map(|t| {
+                        chrono::DateTime::from_timestamp(t.seconds(), t.nanos() as u32)
+                            .unwrap_or_else(chrono::Utc::now)
+                    })
+                    .unwrap_or_else(chrono::Utc::now);
+
+                result.push(ObjectMeta {
+                    key: obj.name,
+                    size: obj.size as u64,
+                    last_modified,
+                    etag: if obj.etag.is_empty() { None } else { Some(obj.etag) },
+                    content_type: if obj.content_type.is_empty() { None } else { Some(obj.content_type) },
+                });
+
+                remaining = remaining.saturating_sub(1);
             }
 
-            page_token = response.next_page_token;
+            // 检查是否还有更多页
+            page_token = if response.next_page_token.is_empty() {
+                None
+            } else {
+                Some(response.next_page_token)
+            };
 
             if remaining == 0 || page_token.is_none() {
                 break;
@@ -313,50 +421,27 @@ impl ObjectStore for GcpGcsObjectStore {
         Ok(result)
     }
 
-    // === 流式接口 ===
-
     async fn put_stream(
         &self,
         key: &str,
-        mut reader: Box<dyn AsyncRead + Send + Unpin>,
+        reader: Box<dyn AsyncRead + Send + Unpin>,
         size: u64,
         options: PutStreamOptions,
     ) -> Result<(), ObjectStoreError> {
-        use google_cloud_storage::http::objects::upload::UploadObjectRequest;
-
-        // 读取所有数据到缓冲区
-        let mut buffer = Vec::with_capacity(size as usize);
-        let mut total_read = 0u64;
-
-        loop {
-            let mut chunk = vec![0u8; 64 * 1024]; // 64KB chunks
-            let n = reader.read(&mut chunk).await?;
-            if n == 0 {
-                break;
-            }
-            buffer.extend_from_slice(&chunk[..n]);
-            total_read += n as u64;
-
-            // 报告进度
-            if let Some(ref callback) = options.progress_callback {
-                callback.on_progress(&TransferProgress {
-                    transferred_bytes: total_read,
-                    total_bytes: size,
-                });
-            }
-        }
+        // 使用自定义 StreamingSource 实现真正的流式上传
+        let source = AsyncReadSource::new(
+            reader,
+            size,
+            options.part_size,
+        );
 
         let content_type = options.content_type.as_deref()
             .unwrap_or("application/octet-stream");
 
-        let request = UploadObjectRequest {
-            bucket: self.config.bucket.clone(),
-            name: key.to_string(),
-            ..Default::default()
-        };
-
-        self.client
-            .upload_object(&request, &buffer, content_type, None)
+        self.storage
+            .write_object(&self.bucket_path(), key, source)
+            .set_content_type(content_type)
+            .send_buffered()
             .await
             .map_err(|e| ObjectStoreError::from_provider(e, "GCP GCS", "put_stream"))?;
 
@@ -369,101 +454,40 @@ impl ObjectStore for GcpGcsObjectStore {
         mut writer: Box<dyn AsyncWrite + Send + Unpin>,
         options: GetStreamOptions,
     ) -> Result<u64, ObjectStoreError> {
-        use google_cloud_storage::http::objects::get::GetObjectRequest;
-        use google_cloud_storage::http::objects::download::Range;
+        use google_cloud_storage::model_ext::ReadRange;
 
-        let gcs_range = if let Some(range) = &options.range {
-            Range(
-                Some(range.start),
-                Some(range.end.saturating_sub(1)),
-            )
-        } else {
-            Range::default()
-        };
+        let key_clone = key.to_string();
 
-        let request = GetObjectRequest {
-            bucket: self.config.bucket.clone(),
-            object: key.to_string(),
-            ..Default::default()
-        };
+        let mut builder = self.storage.read_object(&self.bucket_path(), key);
 
-        let data = self.client
-            .download_object(&request, &gcs_range, None)
+        // 设置读取范围
+        if let Some(range) = &options.range {
+            builder = builder.set_read_range(ReadRange::segment(range.start, range.end - range.start));
+        }
+
+        let mut reader = builder
+            .send()
             .await
-            .map_err(|e| ObjectStoreError::from_provider(e, "GCP GCS", "get_stream"))?;
+            .map_err(|e| {
+                let error_msg = format!("{:?}", e);
+                if error_msg.contains("NotFound") || error_msg.contains("404") {
+                    ObjectStoreError::NotFound { key: key_clone.clone() }
+                } else {
+                    ObjectStoreError::from_provider(e, "GCP GCS", "get_stream")
+                }
+            })?;
 
-        let total_size = data.len() as u64;
         let mut written = 0u64;
 
-        // 分块写入
-        for chunk in data.chunks(64 * 1024) {
-            writer.write_all(chunk).await?;
+        // 流式写入
+        while let Some(chunk) = reader.next().await.transpose()
+            .map_err(|e| ObjectStoreError::from_provider(e, "GCP GCS", "get_stream"))? {
+            writer.write_all(&chunk).await?;
             written += chunk.len() as u64;
-
-            if let Some(ref callback) = options.progress_callback {
-                callback.on_progress(&TransferProgress {
-                    transferred_bytes: written,
-                    total_bytes: total_size,
-                });
-            }
         }
 
         writer.flush().await?;
-        Ok(total_size)
-    }
-
-    // === 分片上传接口 ===
-    // GCS 使用 XML API 的 Multipart Upload: https://cloud.google.com/storage/docs/xml-api/put-object-multipart
-    // 注意：google-cloud-storage SDK 0.6 版本不直接支持分片上传
-    // 这里使用简化实现：对于大文件，我们使用内部缓存方式
-
-    async fn create_multipart_upload(
-        &self,
-        key: &str,
-        _options: PutOptions,
-    ) -> Result<String, ObjectStoreError> {
-        // GCS 的分片上传需要使用 XML API
-        // 这里返回一个标识符，格式为 bucket/key
-        Ok(format!("{}:{}", self.config.bucket, key))
-    }
-
-    async fn upload_part(
-        &self,
-        _key: &str,
-        _upload_id: &str,
-        part_number: u32,
-        data: Bytes,
-    ) -> Result<PartInfo, ObjectStoreError> {
-        // GCS SDK 不直接支持分片上传
-        // 返回分片信息，实际上传在 complete 时进行
-        let size = data.len() as u64;
-        let etag = format!("part-{}-{}", part_number, size);
-
-        Ok(PartInfo {
-            part_number,
-            etag,
-            size,
-        })
-    }
-
-    async fn complete_multipart_upload(
-        &self,
-        _key: &str,
-        _upload_id: &str,
-        _parts: Vec<PartInfo>,
-    ) -> Result<(), ObjectStoreError> {
-        // 注意：由于 SDK 限制，GCS 的大文件上传使用 put_file 的默认流式实现
-        // 分片上传接口仅作为兼容接口存在
-        Ok(())
-    }
-
-    async fn abort_multipart_upload(
-        &self,
-        _key: &str,
-        _upload_id: &str,
-    ) -> Result<(), ObjectStoreError> {
-        // GCS 简化实现不需要取消操作
-        Ok(())
+        Ok(written)
     }
 }
 
@@ -478,4 +502,4 @@ impl From<Box<GcpGcsObjectStore>> for Box<dyn ObjectStore> {
     fn from(store: Box<GcpGcsObjectStore>) -> Self {
         store as Box<dyn ObjectStore>
     }
-}
+} 

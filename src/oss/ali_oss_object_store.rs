@@ -13,8 +13,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::sync::{Arc, RwLock};
 
 use crate::oss::{
-    ObjectStore, ObjectStoreError, ObjectMeta, PutOptions, GetOptions,
-    PutStreamOptions, GetStreamOptions, PartInfo, TransferProgress,
+    ObjectStore, ObjectStoreError, ObjectMeta, PutObjectOptions, GetObjectOptions,
+    PutStreamOptions, GetStreamOptions, PartInfo,
 };
 
 // ============================================================================
@@ -510,385 +510,58 @@ impl AliOssObjectStore {
             is_truncated: list_result.is_truncated,
         })
     }
-}
 
-#[async_trait]
-impl ObjectStore for AliOssObjectStore {
-    async fn put_object(&self, key: &str, value: Bytes) -> Result<(), ObjectStoreError> {
-        self.put_object_ex(key, value, PutOptions::default()).await
-    }
-
-    // 上传内存文件 API (异步): https://docs.rs/aliyun-oss-rust-sdk/aliyun_oss_rust_sdk/oss/struct.OSS.html#method.pub_object_from_buffer
-    async fn put_object_ex(
+    /// 流式分片上传的内部实现
+    async fn put_stream_multipart(
         &self,
         key: &str,
-        value: Bytes,
-        options: PutOptions,
+        upload_id: &str,
+        reader: &mut Box<dyn AsyncRead + Send + Unpin>,
+        _size: u64,
+        options: &PutStreamOptions,
     ) -> Result<(), ObjectStoreError> {
-        use aliyun_oss_rust_sdk::request::RequestBuilder;
-
-        // 确保凭证有效
-        let security_token = self.ensure_credentials().await?;
-
-        let mut builder = RequestBuilder::new();
-
-        // 添加 STS token（如果有）
-        if let Some(ref token) = security_token {
-            builder = builder.oss_header_put("x-oss-security-token", token);
-        }
-
-        // 设置 content-type
-        if let Some(ct) = &options.content_type {
-            builder = builder.with_content_type(ct);
-        }
-
-        // 设置自定义元数据 (x-oss-meta-*)
-        if let Some(metadata) = &options.metadata {
-            for (key, value) in metadata {
-                builder = builder.oss_header_put(
-                    format!("x-oss-meta-{}", key).as_str(),
-                    value.as_str()
-                );
-            }
-        }
-
-        // 设置标签 (x-oss-tagging: key1=value1&key2=value2)
-        if let Some(tags) = &options.tags {
-            let tagging = tags.iter()
-                .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
-                .collect::<Vec<_>>()
-                .join("&");
-            builder = builder.oss_header_put("x-oss-tagging", &tagging);
-        }
-
-        // 直接调用异步 API
-        self.get_client()
-            .pub_object_from_buffer(key, value.as_ref(), builder)
-            .await
-            .map_err(|e| ObjectStoreError::from_provider(e, "Aliyun OSS", "put_object"))?;
-
-        Ok(())
-    }
-
-    // 文件下载 API (异步): https://docs.rs/aliyun-oss-rust-sdk/aliyun_oss_rust_sdk/oss/struct.OSS.html#method.get_object
-    async fn get_object(&self, key: &str) -> Result<Bytes, ObjectStoreError> {
-        self.get_object_ex(key, GetOptions::default()).await
-    }
-
-    // 范围下载: 通过 Range header 实现
-    async fn get_object_ex(&self, key: &str, options: GetOptions) -> Result<Bytes, ObjectStoreError> {
-        use aliyun_oss_rust_sdk::request::RequestBuilder;
-
-        // 确保凭证有效
-        let security_token = self.ensure_credentials().await?;
-
-        let key_clone = key.to_string();
-        let mut builder = RequestBuilder::new();
-
-        // 添加 STS token（如果有）
-        if let Some(ref token) = security_token {
-            builder = builder.oss_header_put("x-oss-security-token", token);
-        }
-
-        // 设置 Range header: bytes=start-end
-        if let Some(range) = options.range {
-            builder.headers.insert(
-                "Range".to_string(),
-                format!("bytes={}-{}", range.start, range.end.saturating_sub(1))
-            );
-        }
-
-        let bytes = self.get_client()
-            .get_object(key, builder)
-            .await
-            .map_err(|e| {
-                let error_msg = format!("{:?}", e);
-                if error_msg.contains("NoSuchKey") || error_msg.contains("404") {
-                    ObjectStoreError::NotFound { key: key_clone }
-                } else {
-                    ObjectStoreError::from_provider(e, "Aliyun OSS", "get_object_ex")
-                }
-            })?;
-
-        Ok(Bytes::from(bytes))
-    }
-
-    // 文件删除 API (异步): https://docs.rs/aliyun-oss-rust-sdk/aliyun_oss_rust_sdk/oss/struct.OSS.html#method.delete_object
-    async fn delete_object(&self, key: &str) -> Result<(), ObjectStoreError> {
-        use aliyun_oss_rust_sdk::request::RequestBuilder;
-
-        // 确保凭证有效
-        let security_token = self.ensure_credentials().await?;
-
-        let mut builder = RequestBuilder::new();
-
-        // 添加 STS token（如果有）
-        if let Some(ref token) = security_token {
-            builder = builder.oss_header_put("x-oss-security-token", token);
-        }
-
-        self.get_client()
-            .delete_object(key, builder)
-            .await
-            .map_err(|e| ObjectStoreError::from_provider(e, "Aliyun OSS", "delete_object"))?;
-
-        Ok(())
-    }
-
-    // 获取对象元数据: 通过 HTTP HEAD 请求获取
-    async fn head_object(&self, key: &str) -> Result<Option<ObjectMeta>, ObjectStoreError> {
-        use aliyun_oss_rust_sdk::request::RequestBuilder;
-
-        // 确保凭证有效
-        let security_token = self.ensure_credentials().await?;
-
-        // 构建请求 URL
-        let url = if self.config.https {
-            format!("https://{}.{}/{}",
-                self.config.bucket,
-                self.config.endpoint.replacen("https://", "", 1),
-                urlencoding::encode(key)
-            )
-        } else {
-            format!("http://{}.{}/{}",
-                self.config.bucket,
-                self.config.endpoint.replacen("http://", "", 1),
-                urlencoding::encode(key)
-            )
-        };
-
-        // 创建签名请求
-        let mut builder = RequestBuilder::new();
-        builder.method = aliyun_oss_rust_sdk::request::RequestType::Head;
-
-        // 获取签名的 headers
-        let (_signed_url, headers) = self.get_client()
-            .build_request(&format!("/{}", key), builder)
-            .map_err(|e| ObjectStoreError::Configuration(
-                format!("Failed to build request: {}", e)
-            ))?;
-
-        // 使用 reqwest 发送 HEAD 请求
-        let http_client = reqwest::Client::new();
-        let mut request = http_client
-            .head(&url)
-            .header("Authorization", headers.get("Authorization").unwrap().to_str().unwrap())
-            .header("Date", headers.get("date").unwrap().to_str().unwrap());
-
-        // 添加 STS token（如果有）
-        if let Some(ref token) = security_token {
-            request = request.header("x-oss-security-token", token);
-        }
-
-        let response = request
-            .send()
-            .await
-            .map_err(|e| ObjectStoreError::from_provider(e, "Aliyun OSS", "head_object"))?;
-
-        // 404 表示对象不存在
-        if response.status() == reqwest::StatusCode::NOT_FOUND {
-            return Ok(None);
-        }
-
-        if !response.status().is_success() {
-            let status = response.status();
-            return Err(ObjectStoreError::Configuration(
-                format!("Aliyun OSS head_object HTTP {}", status)
-            ));
-        }
-
-        // 从响应头解析元数据
-        let headers = response.headers();
-
-        let size = headers
-            .get("content-length")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.parse::<u64>().ok())
-            .unwrap_or(0);
-
-        let last_modified = headers
-            .get("last-modified")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| DateTime::parse_from_rfc2822(s).ok())
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(Utc::now);
-
-        let etag = headers
-            .get("etag")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.trim_matches('"').to_string());
-
-        let content_type = headers
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
-
-        Ok(Some(ObjectMeta {
-            key: key.to_string(),
-            size,
-            last_modified,
-            etag,
-            content_type,
-        }))
-    }
-
-    // 列举对象: 循环调用分页 API，直到达到 limit 或没有更多数据
-    // https://help.aliyun.com/zh/oss/developer-reference/listobjects
-    async fn list_objects(
-        &self,
-        prefix: Option<&str>,
-        max_keys: Option<usize>,
-    ) -> Result<Vec<ObjectMeta>, ObjectStoreError> {
-        let mut result = Vec::new();
-        let mut continuation_token = None;
-        let mut remaining = max_keys.unwrap_or(usize::MAX);
+        let part_size = options.part_size;
+        let mut parts: Vec<PartInfo> = Vec::new();
+        let mut part_number: u32 = 1;
 
         loop {
-            // 每次请求的 page_size 不超过 1000（OSS 限制）
-            let page_size = remaining.min(1000);
+            // 读取一个分片大小的数据
+            let mut buffer = vec![0u8; part_size];
+            let mut buffer_len = 0;
 
-            let page_result = self._list_objects(prefix, page_size, continuation_token).await?;
-
-            // 累积结果
-            for obj in page_result.objects {
-                if remaining == 0 {
+            while buffer_len < part_size {
+                let n = reader.read(&mut buffer[buffer_len..]).await?;
+                if n == 0 {
                     break;
                 }
-                result.push(obj);
-                remaining = remaining.saturating_sub(1);
+                buffer_len += n;
             }
 
-            // 检查是否还有更多数据
-            continuation_token = page_result.next_token;
-
-            if remaining == 0 || !page_result.is_truncated || continuation_token.is_none() {
+            if buffer_len == 0 {
                 break;
             }
+
+            buffer.truncate(buffer_len);
+
+            // 上传分片
+            let part_info = self
+                .upload_part(key, upload_id, part_number, Bytes::from(buffer))
+                .await?;
+
+            parts.push(part_info);
+            part_number += 1;
         }
 
-        Ok(result)
-    }
-
-    // === 流式接口 ===
-
-    async fn put_stream(
-        &self,
-        key: &str,
-        mut reader: Box<dyn AsyncRead + Send + Unpin>,
-        size: u64,
-        options: PutStreamOptions,
-    ) -> Result<(), ObjectStoreError> {
-        use aliyun_oss_rust_sdk::request::RequestBuilder;
-
-        // 确保凭证有效
-        let security_token = self.ensure_credentials().await?;
-
-        // 读取所有数据到缓冲区
-        let mut buffer = Vec::with_capacity(size as usize);
-        let mut total_read = 0u64;
-
-        loop {
-            let mut chunk = vec![0u8; 64 * 1024]; // 64KB chunks
-            let n = reader.read(&mut chunk).await?;
-            if n == 0 {
-                break;
-            }
-            buffer.extend_from_slice(&chunk[..n]);
-            total_read += n as u64;
-
-            // 报告进度
-            if let Some(ref callback) = options.progress_callback {
-                callback.on_progress(&TransferProgress {
-                    transferred_bytes: total_read,
-                    total_bytes: size,
-                });
-            }
+        // 完成分片上传
+        if parts.is_empty() {
+            // 空文件情况：取消分片上传，使用普通上传
+            self.abort_multipart_upload(key, upload_id).await?;
+            self.put_object(key, Bytes::new(), PutObjectOptions::default()).await?;
+        } else {
+            self.complete_multipart_upload(key, upload_id, parts).await?;
         }
-
-        let mut builder = RequestBuilder::new();
-
-        // 添加 STS token（如果有）
-        if let Some(ref token) = security_token {
-            builder = builder.oss_header_put("x-oss-security-token", token);
-        }
-
-        if let Some(ct) = &options.content_type {
-            builder = builder.with_content_type(ct);
-        }
-
-        if let Some(metadata) = &options.metadata {
-            for (k, v) in metadata {
-                builder = builder.oss_header_put(
-                    format!("x-oss-meta-{}", k).as_str(),
-                    v.as_str()
-                );
-            }
-        }
-
-        self.get_client()
-            .pub_object_from_buffer(key, &buffer, builder)
-            .await
-            .map_err(|e| ObjectStoreError::from_provider(e, "Aliyun OSS", "put_stream"))?;
 
         Ok(())
-    }
-
-    async fn get_stream(
-        &self,
-        key: &str,
-        mut writer: Box<dyn AsyncWrite + Send + Unpin>,
-        options: GetStreamOptions,
-    ) -> Result<u64, ObjectStoreError> {
-        use aliyun_oss_rust_sdk::request::RequestBuilder;
-
-        // 确保凭证有效
-        let security_token = self.ensure_credentials().await?;
-
-        let key_clone = key.to_string();
-        let mut builder = RequestBuilder::new();
-
-        // 添加 STS token（如果有）
-        if let Some(ref token) = security_token {
-            builder = builder.oss_header_put("x-oss-security-token", token);
-        }
-
-        if let Some(range) = &options.range {
-            builder.headers.insert(
-                "Range".to_string(),
-                format!("bytes={}-{}", range.start, range.end.saturating_sub(1))
-            );
-        }
-
-        let bytes = self.get_client()
-            .get_object(key, builder)
-            .await
-            .map_err(|e| {
-                let error_msg = format!("{:?}", e);
-                if error_msg.contains("NoSuchKey") || error_msg.contains("404") {
-                    ObjectStoreError::NotFound { key: key_clone }
-                } else {
-                    ObjectStoreError::from_provider(e, "Aliyun OSS", "get_stream")
-                }
-            })?;
-
-        let total_size = bytes.len() as u64;
-        let mut written = 0u64;
-
-        // 分块写入
-        for chunk in bytes.chunks(64 * 1024) {
-            writer.write_all(chunk).await?;
-            written += chunk.len() as u64;
-
-            if let Some(ref callback) = options.progress_callback {
-                callback.on_progress(&TransferProgress {
-                    transferred_bytes: written,
-                    total_bytes: total_size,
-                });
-            }
-        }
-
-        writer.flush().await?;
-        Ok(total_size)
     }
 
     // === 分片上传接口 ===
@@ -897,7 +570,7 @@ impl ObjectStore for AliOssObjectStore {
     async fn create_multipart_upload(
         &self,
         key: &str,
-        options: PutOptions,
+        options: PutObjectOptions,
     ) -> Result<String, ObjectStoreError> {
         use aliyun_oss_rust_sdk::request::RequestBuilder;
 
@@ -1102,6 +775,7 @@ impl ObjectStore for AliOssObjectStore {
 
         let mut builder = RequestBuilder::new();
         builder.method = aliyun_oss_rust_sdk::request::RequestType::Post;
+        builder = builder.with_content_type("application/xml");
 
         // 获取签名的 headers
         let resource = format!("/{}?uploadId={}", key, upload_id);
@@ -1203,6 +877,344 @@ impl ObjectStore for AliOssObjectStore {
         }
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl ObjectStore for AliOssObjectStore {
+    // 上传内存文件 API (异步): https://docs.rs/aliyun-oss-rust-sdk/aliyun_oss_rust_sdk/oss/struct.OSS.html#method.pub_object_from_buffer
+    async fn put_object(
+        &self,
+        key: &str,
+        value: Bytes,
+        options: PutObjectOptions,
+    ) -> Result<(), ObjectStoreError> {
+        use aliyun_oss_rust_sdk::request::RequestBuilder;
+
+        // 确保凭证有效
+        let security_token = self.ensure_credentials().await?;
+
+        let mut builder = RequestBuilder::new();
+
+        // 添加 STS token（如果有）
+        if let Some(ref token) = security_token {
+            builder = builder.oss_header_put("x-oss-security-token", token);
+        }
+
+        // 设置 content-type
+        if let Some(ct) = &options.content_type {
+            builder = builder.with_content_type(ct);
+        }
+
+        // 设置自定义元数据 (x-oss-meta-*)
+        if let Some(metadata) = &options.metadata {
+            for (key, value) in metadata {
+                builder = builder.oss_header_put(
+                    format!("x-oss-meta-{}", key).as_str(),
+                    value.as_str()
+                );
+            }
+        }
+
+        // 直接调用异步 API
+        self.get_client()
+            .pub_object_from_buffer(key, value.as_ref(), builder)
+            .await
+            .map_err(|e| ObjectStoreError::from_provider(e, "Aliyun OSS", "put_object"))?;
+
+        Ok(())
+    }
+
+    // 范围下载: 通过 Range header 实现
+    async fn get_object(&self, key: &str, options: GetObjectOptions) -> Result<Bytes, ObjectStoreError> {
+        use aliyun_oss_rust_sdk::request::RequestBuilder;
+
+        // 确保凭证有效
+        let security_token = self.ensure_credentials().await?;
+
+        let key_clone = key.to_string();
+        let mut builder = RequestBuilder::new();
+
+        // 添加 STS token（如果有）
+        if let Some(ref token) = security_token {
+            builder = builder.oss_header_put("x-oss-security-token", token);
+        }
+
+        // 设置 Range header: bytes=start-end
+        if let Some(range) = options.range {
+            builder.headers.insert(
+                "Range".to_string(),
+                format!("bytes={}-{}", range.start, range.end.saturating_sub(1))
+            );
+        }
+
+        let bytes = self.get_client()
+            .get_object(key, builder)
+            .await
+            .map_err(|e| {
+                let error_msg = format!("{:?}", e);
+                if error_msg.contains("NoSuchKey") || error_msg.contains("404") {
+                    ObjectStoreError::NotFound { key: key_clone }
+                } else {
+                    ObjectStoreError::from_provider(e, "Aliyun OSS", "get_object_ex")
+                }
+            })?;
+
+        Ok(Bytes::from(bytes))
+    }
+
+    // 文件删除 API (异步): https://docs.rs/aliyun-oss-rust-sdk/aliyun_oss_rust_sdk/oss/struct.OSS.html#method.delete_object
+    async fn delete_object(&self, key: &str) -> Result<(), ObjectStoreError> {
+        use aliyun_oss_rust_sdk::request::RequestBuilder;
+
+        // 确保凭证有效
+        let security_token = self.ensure_credentials().await?;
+
+        let mut builder = RequestBuilder::new();
+
+        // 添加 STS token（如果有）
+        if let Some(ref token) = security_token {
+            builder = builder.oss_header_put("x-oss-security-token", token);
+        }
+
+        self.get_client()
+            .delete_object(key, builder)
+            .await
+            .map_err(|e| ObjectStoreError::from_provider(e, "Aliyun OSS", "delete_object"))?;
+
+        Ok(())
+    }
+
+    // 获取对象元数据: 通过 HTTP HEAD 请求获取
+    async fn head_object(&self, key: &str) -> Result<Option<ObjectMeta>, ObjectStoreError> {
+        use aliyun_oss_rust_sdk::request::RequestBuilder;
+
+        // 确保凭证有效
+        let security_token = self.ensure_credentials().await?;
+
+        // 构建请求 URL
+        let url = if self.config.https {
+            format!("https://{}.{}/{}",
+                self.config.bucket,
+                self.config.endpoint.replacen("https://", "", 1),
+                urlencoding::encode(key)
+            )
+        } else {
+            format!("http://{}.{}/{}",
+                self.config.bucket,
+                self.config.endpoint.replacen("http://", "", 1),
+                urlencoding::encode(key)
+            )
+        };
+
+        // 创建签名请求
+        let mut builder = RequestBuilder::new();
+        builder.method = aliyun_oss_rust_sdk::request::RequestType::Head;
+
+        // 获取签名的 headers
+        let (_signed_url, headers) = self.get_client()
+            .build_request(&format!("/{}", key), builder)
+            .map_err(|e| ObjectStoreError::Configuration(
+                format!("Failed to build request: {}", e)
+            ))?;
+
+        // 使用 reqwest 发送 HEAD 请求
+        let http_client = reqwest::Client::new();
+        let mut request = http_client
+            .head(&url)
+            .header("Authorization", headers.get("Authorization").unwrap().to_str().unwrap())
+            .header("Date", headers.get("date").unwrap().to_str().unwrap());
+
+        // 添加 STS token（如果有）
+        if let Some(ref token) = security_token {
+            request = request.header("x-oss-security-token", token);
+        }
+
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ObjectStoreError::from_provider(e, "Aliyun OSS", "head_object"))?;
+
+        // 404 表示对象不存在
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+
+        if !response.status().is_success() {
+            let status = response.status();
+            return Err(ObjectStoreError::Configuration(
+                format!("Aliyun OSS head_object HTTP {}", status)
+            ));
+        }
+
+        // 从响应头解析元数据
+        let headers = response.headers();
+
+        let size = headers
+            .get("content-length")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
+
+        let last_modified = headers
+            .get("last-modified")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| DateTime::parse_from_rfc2822(s).ok())
+            .map(|dt| dt.with_timezone(&Utc))
+            .unwrap_or_else(Utc::now);
+
+        let etag = headers
+            .get("etag")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.trim_matches('"').to_string());
+
+        let content_type = headers
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        Ok(Some(ObjectMeta {
+            key: key.to_string(),
+            size,
+            last_modified,
+            etag,
+            content_type,
+        }))
+    }
+
+    // 列举对象: 循环调用分页 API，直到达到 limit 或没有更多数据
+    // https://help.aliyun.com/zh/oss/developer-reference/listobjects
+    async fn list_objects(
+        &self,
+        prefix: Option<&str>,
+        max_keys: Option<usize>,
+    ) -> Result<Vec<ObjectMeta>, ObjectStoreError> {
+        let mut result = Vec::new();
+        let mut continuation_token = None;
+        let mut remaining = max_keys.unwrap_or(usize::MAX);
+
+        loop {
+            // 每次请求的 page_size 不超过 1000（OSS 限制）
+            let page_size = remaining.min(1000);
+
+            let page_result = self._list_objects(prefix, page_size, continuation_token).await?;
+
+            // 累积结果
+            for obj in page_result.objects {
+                if remaining == 0 {
+                    break;
+                }
+                result.push(obj);
+                remaining = remaining.saturating_sub(1);
+            }
+
+            // 检查是否还有更多数据
+            continuation_token = page_result.next_token;
+
+            if remaining == 0 || !page_result.is_truncated || continuation_token.is_none() {
+                break;
+            }
+        }
+
+        Ok(result)
+    }
+
+    // === 流式接口 ===
+
+    async fn put_stream(
+        &self,
+        key: &str,
+        mut reader: Box<dyn AsyncRead + Send + Unpin>,
+        size: u64,
+        options: PutStreamOptions,
+    ) -> Result<(), ObjectStoreError> {
+        // 初始化分片上传
+        let put_options = PutObjectOptions {
+            content_type: options.content_type.clone(),
+            metadata: options.metadata.clone(),
+        };
+        let upload_id = self.create_multipart_upload(key, put_options).await?;
+
+        // 使用内部函数处理上传逻辑，以便在出错时能够 abort
+        let result = self
+            .put_stream_multipart(key, &upload_id, &mut reader, size, &options)
+            .await;
+
+        if result.is_err() {
+            // 出错时取消分片上传（忽略取消错误）
+            let _ = self.abort_multipart_upload(key, &upload_id).await;
+        }
+
+        result
+    }
+
+    async fn get_stream(
+        &self,
+        key: &str,
+        mut writer: Box<dyn AsyncWrite + Send + Unpin>,
+        options: GetStreamOptions,
+    ) -> Result<u64, ObjectStoreError> {
+        use aliyun_oss_rust_sdk::request::RequestBuilder;
+
+        // 分块大小：8MB
+        const CHUNK_SIZE: u64 = 8 * 1024 * 1024;
+
+        let key_clone = key.to_string();
+
+        // 确定下载范围
+        let (start, end) = if let Some(range) = &options.range {
+            (range.start, range.end)
+        } else {
+            // 获取文件大小
+            let meta = self.head_object(key).await?.ok_or_else(|| {
+                ObjectStoreError::NotFound { key: key_clone.clone() }
+            })?;
+            (0, meta.size)
+        };
+
+        let mut written = 0u64;
+        let mut current_pos = start;
+
+        // 分段下载
+        while current_pos < end {
+            let chunk_end = std::cmp::min(current_pos + CHUNK_SIZE, end);
+
+            // 确保凭证有效（每个请求前检查）
+            let security_token = self.ensure_credentials().await?;
+
+            let mut builder = RequestBuilder::new();
+
+            // 添加 STS token（如果有）
+            if let Some(ref token) = security_token {
+                builder = builder.oss_header_put("x-oss-security-token", token);
+            }
+
+            // 设置 Range header
+            builder.headers.insert(
+                "Range".to_string(),
+                format!("bytes={}-{}", current_pos, chunk_end.saturating_sub(1))
+            );
+
+            let bytes = self.get_client()
+                .get_object(key, builder)
+                .await
+                .map_err(|e| {
+                    let error_msg = format!("{:?}", e);
+                    if error_msg.contains("NoSuchKey") || error_msg.contains("404") {
+                        ObjectStoreError::NotFound { key: key_clone.clone() }
+                    } else {
+                        ObjectStoreError::from_provider(e, "Aliyun OSS", "get_stream")
+                    }
+                })?;
+
+            // 写入数据
+            writer.write_all(&bytes).await?;
+            written += bytes.len() as u64;
+            current_pos = chunk_end;
+        }
+
+        writer.flush().await?;
+        Ok(written)
     }
 }
 
