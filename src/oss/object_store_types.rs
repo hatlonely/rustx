@@ -55,6 +55,9 @@ pub trait DirectoryProgressCallback: Send + Sync {
 pub struct PutStreamOptions {
     pub content_type: Option<String>,
     pub metadata: Option<HashMap<String, String>>,
+    /// 使用分片上传的阈值（默认 100MB）
+    #[default = 104857600]
+    pub multipart_threshold: u64,
     /// 分片大小（默认 8MB）
     #[default = 8388608]
     pub part_size: usize,
@@ -68,6 +71,7 @@ impl std::fmt::Debug for PutStreamOptions {
         f.debug_struct("PutStreamOptions")
             .field("content_type", &self.content_type)
             .field("metadata", &self.metadata)
+            .field("multipart_threshold", &self.multipart_threshold)
             .field("part_size", &self.part_size)
             .field("multipart_concurrency", &self.multipart_concurrency)
             .finish()

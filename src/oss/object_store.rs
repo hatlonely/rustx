@@ -82,6 +82,7 @@ pub trait ObjectStore: Send + Sync {
         let stream_options = PutStreamOptions {
             content_type: options.content_type.clone(),
             metadata: options.metadata.clone(),
+            multipart_threshold: options.multipart_threshold,
             part_size: options.part_size,
             multipart_concurrency: options.multipart_concurrency,
         };

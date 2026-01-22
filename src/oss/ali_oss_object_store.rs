@@ -1128,24 +1128,37 @@ impl ObjectStore for AliOssObjectStore {
         size: u64,
         options: PutStreamOptions,
     ) -> Result<(), ObjectStoreError> {
-        // 初始化分片上传
-        let put_options = PutObjectOptions {
-            content_type: options.content_type.clone(),
-            metadata: options.metadata.clone(),
-        };
-        let upload_id = self.create_multipart_upload(key, put_options).await?;
+        // 根据文件大小决定使用普通上传还是分片上传
+        if size < options.multipart_threshold {
+            // 小文件：读取到内存后一次性上传
+            let mut buffer = Vec::with_capacity(size as usize);
+            tokio::io::copy(&mut reader, &mut buffer).await?;
 
-        // 使用内部函数处理上传逻辑，以便在出错时能够 abort
-        let result = self
-            .put_stream_multipart(key, &upload_id, &mut reader, size, &options)
-            .await;
+            let put_options = PutObjectOptions {
+                content_type: options.content_type,
+                metadata: options.metadata,
+            };
+            self.put_object(key, Bytes::from(buffer), put_options).await
+        } else {
+            // 大文件：使用分片上传
+            let put_options = PutObjectOptions {
+                content_type: options.content_type.clone(),
+                metadata: options.metadata.clone(),
+            };
+            let upload_id = self.create_multipart_upload(key, put_options).await?;
 
-        if result.is_err() {
-            // 出错时取消分片上传（忽略取消错误）
-            let _ = self.abort_multipart_upload(key, &upload_id).await;
+            // 使用内部函数处理上传逻辑，以便在出错时能够 abort
+            let result = self
+                .put_stream_multipart(key, &upload_id, &mut reader, size, &options)
+                .await;
+
+            if result.is_err() {
+                // 出错时取消分片上传（忽略取消错误）
+                let _ = self.abort_multipart_upload(key, &upload_id).await;
+            }
+
+            result
         }
-
-        result
     }
 
     async fn get_stream(
