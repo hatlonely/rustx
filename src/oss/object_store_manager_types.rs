@@ -1,35 +1,63 @@
-// Options and result types for StoreManager operations
+//! StoreManager 操作的选项和结果类型
+//!
+//! 定义了 `ObjectStoreManager` 高级操作所需的配置和返回类型。
 
 use super::object_store_types::{DirectoryProgressCallback, DirectoryTransferResult, FailedFile};
 use std::sync::Arc;
 
-// ============ Options ============
+// ============ 选项类型 ============
 
-/// Copy operation options
+/// 复制操作选项
+///
+/// 用于配置 `cp` 操作（文件/目录复制）的行为。
+/// 支持本地到远程、远程到本地、远程到远程的复制。
 #[derive(Clone, Default)]
 pub struct CpOptions {
-    /// Recursive copy for directories
+    /// 是否递归复制目录
+    ///
+    /// - `true`: 递归复制整个目录树
+    /// - `false`: 仅复制单个文件
     pub recursive: bool,
 
-    /// Overwrite existing files
+    /// 是否覆盖已存在的文件
+    ///
+    /// - `true`: 如果目标文件已存在，则覆盖
+    /// - `false`: 如果目标文件已存在，则返回错误
     pub overwrite: bool,
 
-    /// Concurrent operations count (None = use manager defaults)
+    /// 并发操作数量
+    ///
+    /// - `Some(n)`: 使用指定的并发数
+    /// - `None`: 使用管理器的默认并发数
     pub concurrency: Option<usize>,
 
-    /// Part size for multipart upload in bytes (None = use manager defaults)
+    /// 分片上传的分片大小（字节）
+    ///
+    /// - `Some(n)`: 使用指定的分片大小
+    /// - `None`: 使用管理器的默认分片大小（8MB）
     pub part_size: Option<usize>,
 
-    /// Threshold for multipart upload in bytes (None = use manager defaults)
+    /// 启用分片上传的阈值（字节）
+    ///
+    /// - `Some(n)`: 文件大小超过此值时使用分片上传
+    /// - `None`: 使用管理器的默认阈值（100MB）
     pub multipart_threshold: Option<u64>,
 
-    /// Include file pattern (glob)
+    /// 包含文件模式（glob 格式）
+    ///
+    /// 仅复制匹配此模式的文件。例如：
+    /// - `"*.txt"`: 仅复制 .txt 文件
+    /// - `"**/*.log"`: 递归匹配所有 .log 文件
     pub include: Option<String>,
 
-    /// Exclude file pattern (glob)
+    /// 排除文件模式（glob 格式）
+    ///
+    /// 排除匹配此模式的文件。优先级高于 `include`。
     pub exclude: Option<String>,
 
-    /// Progress callback for directory operations
+    /// 目录操作的进度回调
+    ///
+    /// 用于跟踪批量操作的进度，包括已完成文件数、传输字节数等。
     pub directory_progress_callback: Option<Arc<dyn DirectoryProgressCallback>>,
 }
 
@@ -51,46 +79,72 @@ impl std::fmt::Debug for CpOptions {
     }
 }
 
-/// List operation options
+/// 列举操作选项
+///
+/// 用于配置 `ls` 操作（列举对象）的行为。
 #[derive(Debug, Clone, Default)]
 pub struct LsOptions {
-    /// Maximum number of objects to return
+    /// 返回的最大对象数量
+    ///
+    /// - `Some(n)`: 最多返回 n 个对象
+    /// - `None`: 返回所有匹配的对象（无限制）
     pub max_keys: Option<usize>,
 }
 
-/// Remove operation options
+/// 删除操作选项
+///
+/// 用于配置 `rm` 操作（删除对象）的行为。
 #[derive(Debug, Clone, Default)]
 pub struct RmOptions {
-    /// Recursive delete for directories/prefixes
+    /// 是否递归删除目录/前缀下的所有对象
+    ///
+    /// - `true`: 递归删除所有匹配前缀的对象
+    /// - `false`: 仅删除单个对象
     pub recursive: bool,
 
-    /// Include file pattern (glob)
+    /// 包含文件模式（glob 格式）
+    ///
+    /// 仅删除匹配此模式的文件。递归模式下有效。
     pub include: Option<String>,
 
-    /// Exclude file pattern (glob)
+    /// 排除文件模式（glob 格式）
+    ///
+    /// 排除匹配此模式的文件。递归模式下有效。优先级高于 `include`。
     pub exclude: Option<String>,
 }
 
-// ============ Results ============
+// ============ 结果类型 ============
 
-/// Copy operation result
+/// 复制操作结果
+///
+/// 表示 `cp` 操作的执行结果，包含成功和失败的统计信息。
 #[derive(Debug, Default)]
 pub struct CpResult {
-    /// Number of successfully copied files
+    /// 成功复制的文件数量
     pub success_count: usize,
 
-    /// Number of failed files
+    /// 复制失败的文件数量
     pub failed_count: usize,
 
-    /// Total bytes transferred
+    /// 成功传输的总字节数
     pub total_bytes: u64,
 
-    /// List of failed files with error messages
+    /// 失败文件的详细信息列表
+    ///
+    /// 每个元素包含文件路径和错误信息。
     pub failed_files: Vec<FailedFile>,
 }
 
 impl CpResult {
-    /// Create a result for a single successful file
+    /// 创建单个文件成功的结果
+    ///
+    /// # 参数
+    ///
+    /// - `bytes`: 成功传输的字节数
+    ///
+    /// # 返回值
+    ///
+    /// 返回一个 `CpResult`，`success_count` 为 1，`total_bytes` 为指定值。
     pub fn single_success(bytes: u64) -> Self {
         Self {
             success_count: 1,
@@ -100,7 +154,16 @@ impl CpResult {
         }
     }
 
-    /// Create a result for a single failed file
+    /// 创建单个文件失败的结果
+    ///
+    /// # 参数
+    ///
+    /// - `path`: 失败文件的路径
+    /// - `error`: 错误信息
+    ///
+    /// # 返回值
+    ///
+    /// 返回一个 `CpResult`，`failed_count` 为 1，包含失败文件详情。
     pub fn single_failure(path: String, error: String) -> Self {
         Self {
             success_count: 0,
@@ -122,15 +185,19 @@ impl From<DirectoryTransferResult> for CpResult {
     }
 }
 
-/// Remove operation result
+/// 删除操作结果
+///
+/// 表示 `rm` 操作的执行结果，包含成功和失败的统计信息。
 #[derive(Debug, Default)]
 pub struct RmResult {
-    /// Number of successfully deleted objects
+    /// 成功删除的对象数量
     pub deleted_count: usize,
 
-    /// Number of failed deletions
+    /// 删除失败的对象数量
     pub failed_count: usize,
 
-    /// List of failed files with error messages
+    /// 删除失败的对象详细信息列表
+    ///
+    /// 每个元素包含对象键和错误信息。
     pub failed_files: Vec<FailedFile>,
 }

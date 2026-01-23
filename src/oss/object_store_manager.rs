@@ -1,4 +1,7 @@
-// Store matching and management
+//! 对象存储管理器
+//!
+//! 提供对象存储实例的缓存、检索和高级文件操作功能。
+//! 支持在本地和远程存储之间进行文件复制、列举、删除等操作。
 
 use anyhow::{anyhow, Result};
 use crate::cfg::{create_trait_from_type_options, ConfigReloader, TypeOptions};
@@ -14,46 +17,86 @@ use std::sync::Arc;
 use super::object_store_manager_types::{CpOptions, CpResult, LsOptions, RmOptions, RmResult};
 use super::uri::{Location, OssUri, Provider};
 
-/// ObjectStoreManager configuration
+/// 对象存储管理器配置
+///
+/// 定义了多个对象存储实例的配置和默认操作参数。
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct ObjectStoreManagerConfig {
-    /// ObjectStore configuration list
+    /// 对象存储配置列表
+    ///
+    /// 每个配置描述一个对象存储实例（S3、OSS、GCS 等）。
     pub stores: Vec<TypeOptions>,
 
-    /// Default options
+    /// 操作的默认选项
+    ///
+    /// 当操作选项中未指定具体值时，使用这些默认值。
     pub defaults: DefaultOptions,
 }
 
-/// Default options for operations
+/// 操作的默认选项
+///
+/// 定义了并发数、分片大小、分片上传阈值等默认参数。
 #[derive(Debug, Clone, Deserialize, Serialize, SmartDefault)]
 #[serde(default)]
 pub struct DefaultOptions {
-    /// Concurrent operations count (default: 4)
+    /// 并发操作数量（默认：4）
     #[default = 4]
     pub concurrency: usize,
 
-    /// Part size for multipart upload (default: 8MB)
+    /// 分片上传的分片大小（默认：8MB）
     #[default = 8388608]
     pub part_size: usize,
 
-    /// Threshold for multipart upload (default: 100MB)
+    /// 启用分片上传的阈值（默认：100MB）
     #[default = 104857600]
     pub multipart_threshold: u64,
 }
 
-/// Store manager for caching and retrieving ObjectStore instances
+/// 对象存储管理器
 ///
-/// Provides high-level file operations (cp, ls, rm, stat) on top of ObjectStore.
+/// 负责管理和缓存多个 `ObjectStore` 实例，提供类似 Unix shell 的文件操作接口：
+/// - `cp`: 在本地和远程之间复制文件/目录
+/// - `ls`: 列举远程对象
+/// - `rm`: 删除远程对象
+/// - `stat`: 获取对象元数据
+///
+/// # 核心功能
+///
+/// - **实例缓存**：缓存已创建的 `ObjectStore` 实例，避免重复创建
+/// - **智能路由**：根据 URI 自动选择合适的存储后端
+/// - **高级操作**：支持本地↔远程、远程↔远程的文件传输
+///
+/// # 线程安全
+///
+/// 管理器本身不是线程安全的，但返回的 `ObjectStore` 实例是 `Arc` 包装的，可以跨线程共享。
 pub struct ObjectStoreManager {
+    /// 管理器配置
     config: ObjectStoreManagerConfig,
+
+    /// 对象存储实例缓存
+    ///
+    /// 键为 `(Provider, Bucket)`，值为 `ObjectStore` 实例。
     cache: HashMap<(Provider, String), Arc<dyn ObjectStore>>,
 }
 
 impl ObjectStoreManager {
-    /// Create a new ObjectStoreManager with the given configuration
+    /// 创建一个新的对象存储管理器
+    ///
+    /// # 参数
+    ///
+    /// - `config`: 管理器配置，包含存储实例列表和默认选项
+    ///
+    /// # 返回值
+    ///
+    /// 返回一个初始化完成的管理器实例。
+    ///
+    /// # 行为说明
+    ///
+    /// - 自动注册所有 `ObjectStore` 实现类型
+    /// - 初始化空的实例缓存
     pub fn new(config: ObjectStoreManagerConfig) -> Self {
-        // Register ObjectStore implementations
+        // 注册所有 ObjectStore 实现类型
         register_object_store();
 
         Self {
@@ -62,36 +105,69 @@ impl ObjectStoreManager {
         }
     }
 
-    /// Get or create an ObjectStore for the given URI
+    /// 获取或创建指定 URI 的对象存储实例
+    ///
+    /// 根据 URI 中的 provider 和 bucket 查找对应的存储配置，
+    /// 创建并缓存 `ObjectStore` 实例。
+    ///
+    /// # 参数
+    ///
+    /// - `uri`: 对象存储 URI，包含 provider、bucket 等信息
+    ///
+    /// # 返回值
+    ///
+    /// - `Ok(Arc<dyn ObjectStore>)`: 返回存储实例的共享引用
+    /// - `Err(anyhow::Error)`: 未找到匹配的存储配置或创建失败
+    ///
+    /// # 行为说明
+    ///
+    /// - 首先检查缓存，如果已存在则直接返回
+    /// - 缓存未命中时，查找匹配的存储配置并创建新实例
+    /// - 新实例会被自动缓存，供后续使用
     pub fn get_store(&mut self, uri: &OssUri) -> Result<Arc<dyn ObjectStore>> {
-        // Check cache first
+        // 检查缓存
         let cache_key = (uri.provider.clone(), uri.bucket.clone());
         if let Some(store) = self.cache.get(&cache_key) {
             return Ok(Arc::clone(store));
         }
 
-        // Find matching store configuration
+        // 查找匹配的存储配置
         let store_config = self
             .find_store_config(&uri.provider, &uri.bucket)
             .ok_or_else(|| anyhow!("No store configured for provider:{}, bucket:{}", uri.provider.scheme(), uri.bucket))?;
 
-        // Create store instance
+        // 创建存储实例
         let store = create_store_from_config(store_config)?;
         let store = Arc::from(store);
 
-        // Cache the store
+        // 缓存实例
         self.cache.insert(cache_key, Arc::clone(&store));
 
         Ok(store)
     }
 
-    /// Find store configuration by provider and bucket name
+    /// 根据 provider 和 bucket 名称查找存储配置
+    ///
+    /// # 参数
+    ///
+    /// - `provider`: 存储提供商（S3、OSS、GCS）
+    /// - `bucket`: 存储桶名称
+    ///
+    /// # 返回值
+    ///
+    /// - `Some(&TypeOptions)`: 找到匹配的配置
+    /// - `None`: 未找到匹配的配置
+    ///
+    /// # 匹配规则
+    ///
+    /// 配置的 `type_name` 必须能映射到指定的 `provider`
+    /// 配置的 `bucket` 选项必须与指定的 `bucket` 相同
     fn find_store_config(&self, provider: &Provider, bucket: &str) -> Option<&TypeOptions> {
         self.config.stores.iter().find(|store| {
-            // Check if provider matches
+            // 检查 provider 是否匹配
             let type_matches = type_name_to_provider(&store.type_name) == Some(*provider);
 
-            // Check if bucket matches
+            // 检查 bucket 是否匹配
             let bucket_matches = store
                 .options
                 .get("bucket")
@@ -103,36 +179,60 @@ impl ObjectStoreManager {
         })
     }
 
-    /// Get default options from config
+    /// 获取配置的默认选项
+    ///
+    /// # 返回值
+    ///
+    /// 返回默认选项的引用，包含并发数、分片大小等参数。
     pub fn defaults(&self) -> &DefaultOptions {
         &self.config.defaults
     }
 
-    // ============ High-level File Operations ============
+    // ============ 高级文件操作 ============
 
-    /// Copy files/directories between local and remote locations
+    /// 在本地和远程位置之间复制文件/目录
     ///
-    /// Automatically determines the copy direction:
-    /// - local -> remote: upload
-    /// - remote -> local: download
-    /// - remote -> remote: remote copy
+    /// 自动检测复制方向并执行相应操作：
+    /// - **本地 → 远程**：上传
+    /// - **远程 → 本地**：下载
+    /// - **远程 → 远程**：远程复制
     ///
-    /// # Examples
+    /// # 参数
+    ///
+    /// - `from`: 源路径，可以是本地路径或远程 URI
+    /// - `to`: 目标路径，可以是本地路径或远程 URI
+    /// - `options`: 复制选项，控制并发、覆盖、递归等行为
+    ///
+    /// # 返回值
+    ///
+    /// - `Ok(CpResult)`: 复制完成，返回统计结果
+    /// - `Err(anyhow::Error)`: 复制失败
+    ///
+    /// # 示例
     ///
     /// ```rust,ignore
-    /// // Upload a file
+    /// // 上传单个文件
     /// manager.cp("./file.txt", "s3://bucket/file.txt", CpOptions::default()).await?;
     ///
-    /// // Download a file
+    /// // 下载单个文件
     /// manager.cp("s3://bucket/file.txt", "./file.txt", CpOptions::default()).await?;
     ///
-    /// // Upload a directory recursively
+    /// // 递归上传目录
     /// manager.cp("./dir/", "s3://bucket/prefix/", CpOptions {
     ///     recursive: true,
     ///     concurrency: Some(8),
     ///     ..Default::default()
     /// }).await?;
+    ///
+    /// // 远程到远程复制
+    /// manager.cp("s3://bucket1/file.txt", "s3://bucket2/file.txt", CpOptions::default()).await?;
     /// ```
+    ///
+    /// # 行为说明
+    ///
+    /// - 至少有一个路径必须是远程 URI（不能本地到本地）
+    /// - 目录操作必须设置 `recursive: true`
+    /// - 远程复制使用流式传输，避免中间文件
     pub async fn cp(&mut self, from: &str, to: &str, options: CpOptions) -> Result<CpResult> {
         let src = Location::parse(from)?;
         let dst = Location::parse(to)?;
@@ -184,16 +284,38 @@ impl ObjectStoreManager {
         }
     }
 
-    /// List objects at a remote URI
+    /// 列举远程 URI 下的对象
     ///
-    /// # Examples
+    /// 返回指定前缀下的所有对象元数据列表。
+    ///
+    /// # 参数
+    ///
+    /// - `uri`: 远程 URI，格式如 `s3://bucket/prefix/`
+    /// - `options`: 列举选项，可限制返回数量
+    ///
+    /// # 返回值
+    ///
+    /// - `Ok(Vec<ObjectMeta>)`: 对象元数据列表
+    /// - `Err(anyhow::Error)`: 列举失败
+    ///
+    /// # 示例
     ///
     /// ```rust,ignore
+    /// // 列举所有对象
     /// let objects = manager.ls("s3://bucket/prefix/", LsOptions::default()).await?;
     /// for obj in objects {
     ///     println!("{}: {} bytes", obj.key, obj.size);
     /// }
+    ///
+    /// // 限制返回数量
+    /// let objects = manager.ls("s3://bucket/", LsOptions { max_keys: Some(100) }).await?;
     /// ```
+    ///
+    /// # 行为说明
+    ///
+    /// - URI 中的 key 部分被用作前缀过滤
+    /// - 如果 key 为空，列举整个 bucket
+    /// - 返回结果按字典序排列（取决于后端实现）
     pub async fn ls(&mut self, uri: &str, options: LsOptions) -> Result<Vec<ObjectMeta>> {
         let parsed_uri = OssUri::parse(uri)?;
         let store = self.get_store(&parsed_uri)?;
@@ -208,20 +330,44 @@ impl ObjectStoreManager {
         Ok(objects)
     }
 
-    /// Delete objects at a remote URI
+    /// 删除远程 URI 处的对象
     ///
-    /// # Examples
+    /// 可以删除单个对象或递归删除前缀下的所有对象。
+    ///
+    /// # 参数
+    ///
+    /// - `uri`: 要删除的对象 URI
+    /// - `options`: 删除选项，控制递归、过滤等行为
+    ///
+    /// # 返回值
+    ///
+    /// - `Ok(RmResult)`: 删除完成，返回统计结果
+    /// - `Err(anyhow::Error)`: 删除失败
+    ///
+    /// # 示例
     ///
     /// ```rust,ignore
-    /// // Delete a single file
+    /// // 删除单个文件
     /// manager.rm("s3://bucket/file.txt", RmOptions::default()).await?;
     ///
-    /// // Delete a directory recursively
+    /// // 递归删除目录/前缀
     /// manager.rm("s3://bucket/prefix/", RmOptions {
     ///     recursive: true,
     ///     ..Default::default()
     /// }).await?;
+    ///
+    /// // 删除并过滤文件
+    /// manager.rm("s3://bucket/logs/", RmOptions {
+    ///     recursive: true,
+    ///     include: Some("*.log".to_string()),
+    /// }).await?;
     /// ```
+    ///
+    /// # 行为说明
+    ///
+    /// - URI 以 `/` 结尾时被视为目录/前缀
+    /// - 删除目录/前缀必须设置 `recursive: true`
+    /// - 支持基于 glob 模式的文件过滤
     pub async fn rm(&mut self, uri: &str, options: RmOptions) -> Result<RmResult> {
         let parsed_uri = OssUri::parse(uri)?;
         let store = self.get_store(&parsed_uri)?;
@@ -239,14 +385,33 @@ impl ObjectStoreManager {
         }
     }
 
-    /// Get metadata for an object at a remote URI
+    /// 获取远程对象的元数据
     ///
-    /// # Examples
+    /// 查询对象的大小、最后修改时间、ETag 等信息，不下载对象内容。
+    ///
+    /// # 参数
+    ///
+    /// - `uri`: 对象的远程 URI
+    ///
+    /// # 返回值
+    ///
+    /// - `Ok(ObjectMeta)`: 对象的元数据，包含 key、size、last_modified 等字段
+    /// - `Err(anyhow::Error)`: 对象不存在或查询失败
+    ///
+    /// # 示例
     ///
     /// ```rust,ignore
     /// let meta = manager.stat("s3://bucket/file.txt").await?;
-    /// println!("Size: {}, Last Modified: {:?}", meta.size, meta.last_modified);
+    /// println!("Size: {} bytes", meta.size);
+    /// println!("Last Modified: {:?}", meta.last_modified);
+    /// println!("ETag: {}", meta.etag);
     /// ```
+    ///
+    /// # 行为说明
+    ///
+    /// - 这是一个轻量级操作，不消耗数据传输流量
+    /// - 可用于检查对象是否存在
+    /// - 如果对象不存在，返回错误
     pub async fn stat(&mut self, uri: &str) -> Result<ObjectMeta> {
         let parsed_uri = OssUri::parse(uri)?;
         let store = self.get_store(&parsed_uri)?;
@@ -257,9 +422,19 @@ impl ObjectStoreManager {
             .ok_or_else(|| anyhow!("Object not found: {}", parsed_uri.key))
     }
 
-    // ============ Private Implementation Methods ============
+    // ============ 私有实现方法 ============
 
-    /// Upload local file/directory to remote
+    /// 上传本地文件/目录到远程存储
+    ///
+    /// # 参数
+    ///
+    /// - `local_path`: 本地路径
+    /// - `remote_uri`: 目标远程 URI
+    /// - `options`: 上传选项
+    /// - `store`: 对象存储实例
+    /// - `concurrency`: 并发数
+    /// - `part_size`: 分片大小
+    /// - `multipart_threshold`: 分片上传阈值
     async fn upload(
         &self,
         local_path: &str,
@@ -303,7 +478,16 @@ impl ObjectStoreManager {
         }
     }
 
-    /// Upload a single file
+    /// 上传单个文件
+    ///
+    /// # 参数
+    ///
+    /// - `local_path`: 本地文件路径
+    /// - `remote_uri`: 目标远程 URI
+    /// - `options`: 上传选项
+    /// - `store`: 对象存储实例
+    /// - `part_size`: 分片大小
+    /// - `multipart_threshold`: 分片上传阈值
     async fn upload_file(
         &self,
         local_path: &Path,
@@ -348,7 +532,9 @@ impl ObjectStoreManager {
         Ok(CpResult::single_success(file_size))
     }
 
-    /// Upload a directory
+    /// 上传目录
+    ///
+    /// 递归上传目录中的所有文件到远程存储。
     async fn upload_directory(
         &self,
         local_path: &Path,
@@ -380,7 +566,15 @@ impl ObjectStoreManager {
         Ok(result.into())
     }
 
-    /// Download remote file/directory to local
+    /// 下载远程文件/目录到本地
+    ///
+    /// # 参数
+    ///
+    /// - `remote_uri`: 源远程 URI
+    /// - `local_path`: 本地目标路径
+    /// - `options`: 下载选项
+    /// - `store`: 对象存储实例
+    /// - `concurrency`: 并发数
     async fn download(
         &self,
         remote_uri: &OssUri,
@@ -404,7 +598,14 @@ impl ObjectStoreManager {
         }
     }
 
-    /// Download a single file
+    /// 下载单个文件
+    ///
+    /// # 参数
+    ///
+    /// - `remote_uri`: 源远程 URI
+    /// - `local_path`: 本地目标路径
+    /// - `options`: 下载选项
+    /// - `store`: 对象存储实例
     async fn download_file(
         &self,
         remote_uri: &OssUri,
@@ -439,7 +640,9 @@ impl ObjectStoreManager {
         Ok(CpResult::single_success(meta.size))
     }
 
-    /// Download a directory
+    /// 下载目录
+    ///
+    /// 批量下载前缀下的所有对象到本地目录。支持文件过滤。
     async fn download_directory(
         &self,
         remote_uri: &OssUri,
@@ -544,7 +747,9 @@ impl ObjectStoreManager {
         Ok(result)
     }
 
-    /// Copy between remote locations
+    /// 在远程位置之间复制
+    ///
+    /// 使用流式传输在不同存储桶或提供商之间复制文件。
     async fn copy_remote(
         &self,
         src_uri: &OssUri,
@@ -568,7 +773,9 @@ impl ObjectStoreManager {
         }
     }
 
-    /// Copy a single file between remote locations using streaming
+    /// 使用流式传输在远程位置之间复制单个文件
+    ///
+    /// 通过管道连接源存储的下载和目标存储的上传，实现零中间文件的远程复制。
     async fn copy_remote_file(
         &self,
         src_uri: &OssUri,
@@ -631,7 +838,9 @@ impl ObjectStoreManager {
         Ok(CpResult::single_success(size))
     }
 
-    /// Copy a directory between remote locations
+    /// 在远程位置之间复制目录
+    ///
+    /// 递归复制前缀下的所有对象。
     async fn copy_remote_directory(
         &self,
         src_uri: &OssUri,
@@ -704,7 +913,15 @@ impl ObjectStoreManager {
         Ok(result)
     }
 
-    /// Copy a single object between remote locations using streaming
+    /// 使用流式传输在远程位置之间复制单个对象
+    ///
+    /// # 参数
+    ///
+    /// - `src_store`: 源存储实例
+    /// - `dst_store`: 目标存储实例
+    /// - `src_key`: 源对象键
+    /// - `dst_key`: 目标对象键
+    /// - `size`: 对象大小（字节）
     async fn copy_single_object(
         &self,
         src_store: &dyn ObjectStore,
@@ -733,7 +950,12 @@ impl ObjectStoreManager {
         Ok(size)
     }
 
-    /// Delete a single object
+    /// 删除单个对象
+    ///
+    /// # 参数
+    ///
+    /// - `uri`: 要删除的对象 URI
+    /// - `store`: 对象存储实例
     async fn delete_single(&self, uri: &OssUri, store: &dyn ObjectStore) -> Result<RmResult> {
         // Check if the object exists
         let meta = store.head_object(&uri.key).await?;
@@ -750,7 +972,9 @@ impl ObjectStoreManager {
         })
     }
 
-    /// Delete objects recursively
+    /// 递归删除对象
+    ///
+    /// 列举前缀下的所有对象，应用过滤规则后批量删除。
     async fn delete_recursive(
         &self,
         uri: &OssUri,
@@ -817,13 +1041,37 @@ impl ObjectStoreManager {
     }
 }
 
-/// Create an ObjectStore from TypeOptions configuration
+/// 从 TypeOptions 配置创建 ObjectStore 实例
+///
+/// # 参数
+///
+/// - `config`: 类型配置，包含类型名称和选项
+///
+/// # 返回值
+///
+/// - `Ok(Box<dyn ObjectStore>)`: 创建的存储实例
+/// - `Err(anyhow::Error)`: 创建失败
 fn create_store_from_config(config: &TypeOptions) -> Result<Box<dyn ObjectStore>> {
     create_trait_from_type_options::<dyn ObjectStore>(config)
         .map_err(|e| anyhow!("Failed to create ObjectStore: {}", e))
 }
 
-/// Map type name to provider
+/// 将类型名称映射到 Provider
+///
+/// # 参数
+///
+/// - `type_name`: ObjectStore 实现的类型名称
+///
+/// # 返回值
+///
+/// - `Some(Provider)`: 对应的存储提供商
+/// - `None`: 未知的类型名称
+///
+/// # 映射关系
+///
+/// - `"AwsS3ObjectStore"` → `Provider::S3`
+/// - `"AliOssObjectStore"` → `Provider::Oss`
+/// - `"GcpGcsObjectStore"` → `Provider::Gcs`
 fn type_name_to_provider(type_name: &str) -> Option<Provider> {
     match type_name {
         "AwsS3ObjectStore" => Some(Provider::S3),
@@ -833,20 +1081,20 @@ fn type_name_to_provider(type_name: &str) -> Option<Provider> {
     }
 }
 
-// Implement From trait for configuration system integration
+// 为配置系统集成实现 From trait
 impl From<ObjectStoreManagerConfig> for ObjectStoreManager {
     fn from(config: ObjectStoreManagerConfig) -> Self {
         ObjectStoreManager::new(config)
     }
 }
 
-// Implement ConfigReloader for hot reload support
+// 为热重载支持实现 ConfigReloader
 impl ConfigReloader<ObjectStoreManagerConfig> for ObjectStoreManager {
     fn reload_config(&mut self, config: ObjectStoreManagerConfig) -> Result<()> {
-        // Update configuration
+        // 更新配置
         self.config = config;
 
-        // Clear cache to force recreation with new configuration
+        // 清空缓存，强制使用新配置重新创建实例
         self.cache.clear();
 
         Ok(())
