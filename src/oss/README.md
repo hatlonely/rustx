@@ -51,9 +51,6 @@ use rustx::oss::{ObjectStoreManager, ObjectStoreManagerConfig, register_object_s
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 注册所有 ObjectStore 类型
-    register_object_store();
-
     // 从 JSON5 配置创建管理器
     let config_json = r#"
     {
