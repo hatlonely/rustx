@@ -198,8 +198,8 @@ mod tests {
         // 检查 ISO 8601 格式的时间戳
         assert!(formatted.contains("T"));
         assert!(formatted.contains("Z"));
-        // 检查线程 ID 存在（现在是数字格式，如 [4]）
-        assert!(formatted.contains("INFO test message"));
+        // 检查线程 ID 存在
+        assert!(formatted.contains("] INFO  test message"));
     }
 
     #[test]
@@ -219,7 +219,7 @@ mod tests {
         println!("{}", formatted);
 
         assert!(formatted.contains("[file.rs:42]"));
-        assert!(formatted.contains("ERROR[file.rs:42] error message"));
+        assert!(formatted.contains("ERROR [file.rs:42] error message"));
     }
 
     #[test]
@@ -237,8 +237,8 @@ mod tests {
         let formatted = formatter.format(&record).unwrap();
         println!("{}", formatted);
 
-        // 线程 ID 应该始终存在，且是数字格式
-        assert!(formatted.contains("DEBUG debug message"));
+        // 线程 ID 应该始终存在
+        assert!(formatted.contains("DEBUG  debug message"));
         // 检查格式：时间戳 [线程ID] 级别 消息
         assert!(formatted.matches('[').count() >= 2); // 至少有时间和线程ID两个方括号
     }

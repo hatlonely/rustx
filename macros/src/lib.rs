@@ -7,7 +7,7 @@ use syn::{parse_macro_input, DeriveInput};
 /// # 示例
 /// ```ignore
 /// use serde::Deserialize;
-/// use rustx::kv::parser::ParseValue;
+/// use rustx_macros::ParseValue;
 ///
 /// #[derive(Debug, Deserialize, ParseValue)]
 /// struct User {
@@ -25,10 +25,10 @@ pub fn parse_value_derive(input: TokenStream) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     let expanded = quote! {
-        impl #impl_generics crate::kv::parser::ParseValue for #struct_name #ty_generics #where_clause {
-            fn parse_value(s: &str) -> Result<Self, crate::kv::parser::ParserError> {
+        impl #impl_generics ::rustx::kv::parser::ParseValue for #struct_name #ty_generics #where_clause {
+            fn parse_value(s: &str) -> Result<Self, ::rustx::kv::parser::ParserError> {
                 ::serde_json::from_str(s).map_err(|e| {
-                    crate::kv::parser::ParserError::ParseFailed(
+                    ::rustx::kv::parser::ParserError::ParseFailed(
                         format!("failed to parse {}: {}", stringify!(#struct_name), e)
                     )
                 })

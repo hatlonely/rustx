@@ -49,11 +49,23 @@ pub trait ObjectStore: Send + Sync {
     // === 流式接口 ===
 
     /// 流式上传
+    ///
+    /// # 参数
+    /// - `key`: 对象键
+    /// - `reader`: 异步读取器
+    /// - `size`: 可选的数据大小（字节数）
+    ///   - `Some(size)`: 提前知道大小，用于优化上传策略（决定是否分片、预分配内存等）
+    ///   - `None`: 大小未知，强制使用分片上传策略，避免内存溢出
+    /// - `options`: 上传选项
+    ///
+    /// # 注意
+    /// 如果数据大小未知或可能超过阈值，建议传 `None` 以确保使用流式分片上传，
+    /// 避免将整个数据读入内存导致 OOM。
     async fn put_stream(
         &self,
         key: &str,
         reader: Box<dyn AsyncRead + Send + Unpin>,
-        size: u64,
+        size: Option<u64>,
         options: PutStreamOptions,
     ) -> Result<(), ObjectStoreError>;
 
@@ -86,7 +98,7 @@ pub trait ObjectStore: Send + Sync {
             part_size: options.part_size,
             multipart_concurrency: options.multipart_concurrency,
         };
-        self.put_stream(key, Box::new(file), file_size, stream_options)
+        self.put_stream(key, Box::new(file), Some(file_size), stream_options)
             .await
     }
 

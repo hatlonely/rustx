@@ -617,7 +617,7 @@ impl ObjectStoreManager {
         // Using try_join to run both operations in parallel on the same task
         let src_key = src_uri.key.clone();
         let download_future = src_store.get_stream(&src_key, Box::new(writer), get_options);
-        let upload_future = dst_store.put_stream(&dst_key, Box::new(reader), size, put_options);
+        let upload_future = dst_store.put_stream(&dst_key, Box::new(reader), Some(size), put_options);
 
         let (download_result, upload_result) = tokio::try_join!(
             async { download_future.await.map_err(|e| anyhow!("Download failed: {}", e)) },
@@ -723,7 +723,7 @@ impl ObjectStoreManager {
 
         let src_key = src_key.to_string();
         let download_future = src_store.get_stream(&src_key, Box::new(writer), get_options);
-        let upload_future = dst_store.put_stream(dst_key, Box::new(reader), size, put_options);
+        let upload_future = dst_store.put_stream(dst_key, Box::new(reader), Some(size), put_options);
 
         tokio::try_join!(
             async { download_future.await.map_err(|e| anyhow!("Download failed: {}", e)) },

@@ -179,7 +179,7 @@ impl GcpGcsObjectStore {
 /// 使用 tokio::sync::Mutex 使结构体满足 Sync 要求
 struct AsyncReadSource {
     reader: tokio::sync::Mutex<Box<dyn AsyncRead + Send + Unpin>>,
-    size: u64,
+    size: Option<u64>,
     chunk_size: usize,
     total_read: std::sync::atomic::AtomicU64,
 }
@@ -187,7 +187,7 @@ struct AsyncReadSource {
 impl AsyncReadSource {
     fn new(
         reader: Box<dyn AsyncRead + Send + Unpin>,
-        size: u64,
+        size: Option<u64>,
         chunk_size: usize,
     ) -> Self {
         Self {
@@ -230,7 +230,10 @@ impl google_cloud_storage::streaming_source::StreamingSource for AsyncReadSource
     fn size_hint(&self) -> impl Future<Output = Result<google_cloud_storage::streaming_source::SizeHint, Self::Error>> + Send {
         let size = self.size;
         async move {
-            Ok(google_cloud_storage::streaming_source::SizeHint::with_exact(size))
+            match size {
+                Some(s) => Ok(google_cloud_storage::streaming_source::SizeHint::with_exact(s)),
+                None => Ok(google_cloud_storage::streaming_source::SizeHint::default()),
+            }
         }
     }
 }
@@ -425,7 +428,7 @@ impl ObjectStore for GcpGcsObjectStore {
         &self,
         key: &str,
         reader: Box<dyn AsyncRead + Send + Unpin>,
-        size: u64,
+        size: Option<u64>,
         options: PutStreamOptions,
     ) -> Result<(), ObjectStoreError> {
         // 使用自定义 StreamingSource 实现真正的流式上传

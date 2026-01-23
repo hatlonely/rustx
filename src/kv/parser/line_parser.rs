@@ -257,13 +257,20 @@ mod tests {
     #[test]
     fn test_parse_with_custom_struct() {
         use serde::Deserialize;
-        use rustx_macros::ParseValue;
 
-        // 使用派生宏自动实现 ParseValue trait
-        #[derive(Debug, Deserialize, PartialEq, ParseValue)]
+        // 单元测试中手动实现 ParseValue trait
+        #[derive(Debug, Deserialize, PartialEq)]
         struct User {
             name: String,
             age: i32,
+        }
+
+        impl ParseValue for User {
+            fn parse_value(s: &str) -> Result<Self, ParserError> {
+                serde_json::from_str(s).map_err(|e| {
+                    ParserError::ParseFailed(format!("failed to parse User: {}", e))
+                })
+            }
         }
 
         let config = LineParserConfig {

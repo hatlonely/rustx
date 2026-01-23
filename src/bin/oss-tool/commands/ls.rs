@@ -23,14 +23,15 @@ pub async fn execute_ls(args: &LsArgs, manager: &mut ObjectStoreManager) -> Resu
         total_size += obj.size;
 
         if args.long {
-            // Long format: timestamp size key
+            // Long format: timestamp size etag key
             let timestamp = format_timestamp(&obj.last_modified);
             let size_str = if args.human_readable {
                 format!("{:>10}", format_bytes(obj.size))
             } else {
                 format!("{:>12}", obj.size)
             };
-            println!("{} {} {}", timestamp, size_str, obj.key);
+            let etag_str = obj.etag.as_deref().unwrap_or("-");
+            println!("{} {} {:<32} {}", timestamp, size_str, etag_str, obj.key);
         } else {
             // Short format: just the key
             println!("{}", obj.key);

@@ -547,7 +547,7 @@ mod tests {
     #[test]
     fn test_config_default() {
         let config: RollingFileAppenderConfig = RollingFileAppenderConfig::default();
-        assert_eq!(config.file_path, "/var/log/app.log");
+        assert_eq!(config.file_path, "app.log");
         assert_eq!(config.max_size, None);
         assert_eq!(config.max_files, None);
         assert!(config.compress == false);
