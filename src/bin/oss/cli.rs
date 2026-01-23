@@ -8,7 +8,7 @@ use clap::{Args, Parser, Subcommand};
 #[command(version = "0.1.0")]
 #[command(about = "A unified object storage CLI tool", long_about = None)]
 pub struct Cli {
-    /// Path to config file (default: ~/.oss-tool/config.yaml)
+    /// Path to config file (default: ~/.oss/config.yaml)
     #[arg(short, long, global = true)]
     pub config: Option<String>,
 

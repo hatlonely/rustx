@@ -78,4 +78,4 @@ harness = false
 
 [[bin]]
 name = "oss"
-path = "src/bin/oss-tool/main.rs"
+path = "src/bin/oss/main.rs"

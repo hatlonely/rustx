@@ -13,10 +13,10 @@ use cli::{Cli, Commands};
 use commands::{execute_cp, execute_ls, execute_rm, execute_stat};
 use rustx::oss::{ObjectStoreManager, ObjectStoreManagerConfig};
 
-/// Get default config path (~/.oss-tool/config.yaml)
+/// Get default config path (~/.oss/config.yaml)
 fn default_config_path() -> Result<PathBuf> {
     let home = dirs::home_dir().context("Failed to get home directory")?;
-    Ok(home.join(".oss-tool").join("config.yaml"))
+    Ok(home.join(".oss").join("config.yaml"))
 }
 
 /// Load configuration from file
