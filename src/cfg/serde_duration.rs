@@ -404,12 +404,111 @@ mod tests {
     fn test_invalid_serde() {
         // 测试序列化时的错误处理
         use serde_with::DeserializeAs;
-        
+
         let invalid_json = "\"invalid_duration\"";
         let mut deserializer = serde_json::Deserializer::from_str(invalid_json);
         let result = HumanDur::deserialize_as(&mut deserializer);
-        
+
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_option_human_dur_serde() {
+        #[serde_as]
+        #[derive(Debug, Serialize, Deserialize, PartialEq)]
+        struct Config {
+            #[serde_as(as = "Option<HumanDur>")]
+            timeout: Option<Duration>,
+            #[serde_as(as = "Option<HumanDur>")]
+            retry_interval: Option<Duration>,
+        }
+
+        // 测试 Some 值
+        let config = Config {
+            timeout: Some(Duration::from_secs(30)),
+            retry_interval: Some(Duration::from_secs(300)),
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains("\"30s\""));
+        assert!(json.contains("\"5m\""));
+        let deserialized: Config = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, config);
+
+        // 测试 None 值
+        let config_none = Config {
+            timeout: None,
+            retry_interval: None,
+        };
+        let json_none = serde_json::to_string(&config_none).unwrap();
+        assert!(json_none.contains("null"));
+        let deserialized_none: Config = serde_json::from_str(&json_none).unwrap();
+        assert_eq!(deserialized_none, config_none);
+
+        // 测试混合值
+        let config_mixed = Config {
+            timeout: Some(Duration::from_secs(60)),
+            retry_interval: None,
+        };
+        let json_mixed = serde_json::to_string(&config_mixed).unwrap();
+        let deserialized_mixed: Config = serde_json::from_str(&json_mixed).unwrap();
+        assert_eq!(deserialized_mixed, config_mixed);
+
+        // 测试从 JSON 反序列化
+        let json_input = r#"{"timeout":"1h30m","retry_interval":null}"#;
+        let parsed: Config = serde_json::from_str(json_input).unwrap();
+        assert_eq!(parsed.timeout, Some(Duration::from_secs(3600 + 1800)));
+        assert_eq!(parsed.retry_interval, None);
+    }
+
+    #[test]
+    fn test_option_human_dur_with_default() {
+        #[serde_as]
+        #[derive(Debug, Serialize, Deserialize, PartialEq, Default)]
+        struct Config {
+            #[serde_as(as = "Option<HumanDur>")]
+            #[serde(default)]
+            timeout: Option<Duration>,
+        }
+
+        // 测试字段缺失时使用默认值
+        let json_empty = r#"{}"#;
+        let parsed: Config = serde_json::from_str(json_empty).unwrap();
+        assert_eq!(parsed.timeout, None);
+
+        // 测试显式 null
+        let json_null = r#"{"timeout":null}"#;
+        let parsed_null: Config = serde_json::from_str(json_null).unwrap();
+        assert_eq!(parsed_null.timeout, None);
+
+        // 测试有值
+        let json_value = r#"{"timeout":"5s"}"#;
+        let parsed_value: Config = serde_json::from_str(json_value).unwrap();
+        assert_eq!(parsed_value.timeout, Some(Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn test_option_human_dur_yaml() {
+        #[serde_as]
+        #[derive(Debug, Serialize, Deserialize, PartialEq)]
+        struct Config {
+            #[serde_as(as = "Option<HumanDur>")]
+            timeout: Option<Duration>,
+        }
+
+        // Some 值
+        let config = Config {
+            timeout: Some(Duration::from_secs(120)),
+        };
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        assert!(yaml.contains("2m"));
+        let deserialized: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(deserialized, config);
+
+        // None 值
+        let config_none = Config { timeout: None };
+        let yaml_none = serde_yaml::to_string(&config_none).unwrap();
+        let deserialized_none: Config = serde_yaml::from_str(&yaml_none).unwrap();
+        assert_eq!(deserialized_none, config_none);
     }
 
     #[test]

@@ -18,6 +18,7 @@
 //! - 🛡️ **内存安全**: Rust 所有权系统保证
 //! - ⚡ **高性能**: 异步操作支持
 
+pub mod aop;
 pub mod cfg;
 pub mod fs;
 pub mod kv;
@@ -42,6 +43,8 @@ pub use oss::{AwsS3ObjectStore, AwsS3ObjectStoreConfig};
 pub use oss::{AliOssObjectStore, AliOssObjectStoreConfig};
 pub use oss::{GcpGcsObjectStore, GcpGcsObjectStoreConfig};
 pub use oss::register_object_store;
+
+pub use aop::{Aop, AopConfig, LoggingConfig, RetryConfig};
 
 // 重新导出 ParseValue trait 和派生宏
 pub use kv::parser::ParseValue;

@@ -1,0 +1,31 @@
+//! AOP (Aspect-Oriented Programming) 模块
+//!
+//! 提供切面编程支持，集成常见的切面功能：
+//! - Logging: 记录方法调用的开始、结束、耗时、结果
+//! - Retry: 支持多种退避策略的重试机制
+//!
+//! # 使用示例
+//!
+//! ```ignore
+//! use rustx::aop::{Aop, AopConfig};
+//!
+//! pub struct MyServiceConfig {
+//!     pub aop: Option<AopConfig>,
+//! }
+//!
+//! pub struct MyService {
+//!     client: SomeClient,
+//!     aop: Option<Aop>,
+//! }
+//!
+//! impl MyService {
+//!     pub async fn get_value(&self, key: &str) -> Result<String> {
+//!         aop!(&self.aop, self.client.get(key).await)
+//!     }
+//! }
+//! ```
+
+mod aop;
+mod macros;
+
+pub use aop::{Aop, AopConfig, LoggingConfig, RetryConfig};
