@@ -10,9 +10,12 @@ use std::sync::RwLock;
 
 use super::type_options::TypeOptions;
 
+use std::sync::Arc;
+
 // Trait-based 构造函数类型
 // 注意：这里我们仍然返回 Box<dyn Any>，但实际上它包含的是 Box<dyn Trait>
-type TraitConstructor = Box<dyn Fn(JsonValue) -> Result<Box<dyn Any + Send + Sync>> + Send + Sync>;
+// 使用 Arc 以便在查找后快速克隆（只是增加引用计数）
+type TraitConstructor = Arc<dyn Fn(JsonValue) -> Result<Box<dyn Any + Send + Sync>> + Send + Sync>;
 
 // Trait 注册表：为每个 Trait 类型维护一个独立的注册表
 // 外层 HashMap 的 key 是 Trait 的 TypeId，内层 HashMap 的 key 是类型名称
@@ -51,7 +54,7 @@ where
     let type_name = type_name.to_string();
     let trait_id = TypeId::of::<Trait>();
 
-    let constructor: TraitConstructor = Box::new(move |value| {
+    let constructor: TraitConstructor = Arc::new(move |value| {
         let config: Config = serde_json::from_value(value)?;
         let instance = T::from(config);
         let boxed_instance = Box::new(instance);
@@ -86,21 +89,27 @@ where
     Trait: ?Sized + Send + Sync + 'static,
 {
     let trait_id = TypeId::of::<Trait>();
-    let registry = TRAIT_REGISTRY
-        .read()
-        .map_err(|_| anyhow!("Failed to acquire read lock"))?;
 
-    let trait_registry = registry
-        .get(&trait_id)
-        .ok_or_else(|| anyhow!("No implementations registered for trait"))?;
+    // 步骤1: 在读锁中查找并克隆构造函数（锁在此步骤后立即释放）
+    let constructor = {
+        let registry_guard = TRAIT_REGISTRY.read()
+            .map_err(|_| anyhow!("Failed to acquire read lock"))?;
 
-    let constructor = trait_registry.get(&type_options.type_name).ok_or_else(|| {
-        anyhow!(
-            "Type '{}' not registered for this trait",
-            type_options.type_name
-        )
-    })?;
+        let trait_registry = registry_guard
+            .get(&trait_id)
+            .ok_or_else(|| anyhow!("No implementations registered for trait"))?;
 
+        trait_registry
+            .get(&type_options.type_name)
+            .ok_or_else(|| anyhow!(
+                "Type '{}' not registered for this trait",
+                type_options.type_name
+            ))?
+            .clone()
+        // registry_guard 在此自动释放
+    };
+
+    // 步骤2: 在无锁状态下调用构造函数（可能包含耗时操作）
     let any_box = constructor(type_options.options.clone())?;
 
     // 从 Box<dyn Any> 中提取 Box<dyn Trait>

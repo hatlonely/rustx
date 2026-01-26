@@ -4,6 +4,7 @@ mod object_store_types;
 mod aws_s3_object_store;
 mod ali_oss_object_store;
 mod gcp_gcs_object_store;
+mod aop_object_store;
 mod object_store_manager;
 mod object_store_manager_types;
 mod uri;
@@ -23,6 +24,7 @@ pub use object_store_types::{
 pub use aws_s3_object_store::{AwsS3ObjectStore, AwsS3ObjectStoreConfig};
 pub use ali_oss_object_store::{AliOssObjectStore, AliOssObjectStoreConfig};
 pub use gcp_gcs_object_store::{GcpGcsObjectStore, GcpGcsObjectStoreConfig};
+pub use aop_object_store::{AopObjectStore, AopObjectStoreConfig};
 pub use object_store_manager::{ObjectStoreManager, ObjectStoreManagerConfig, DefaultOptions};
 pub use object_store_manager_types::{CpOptions, CpResult, LsOptions, RmOptions, RmResult};
 pub use uri::{OssUri, Provider, Location, is_remote_uri};
@@ -57,6 +59,11 @@ pub fn register_object_store() {
     register_trait::<GcpGcsObjectStore, dyn ObjectStore, GcpGcsObjectStoreConfig>(
         "GcpGcsObjectStore"
     ).expect("Failed to register GcpGcsObjectStore");
+
+    // 注册 AOP ObjectStore
+    register_trait::<AopObjectStore, dyn ObjectStore, AopObjectStoreConfig>(
+        "AopObjectStore"
+    ).expect("Failed to register AopObjectStore");
 }
 
 #[cfg(test)]

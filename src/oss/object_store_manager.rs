@@ -3,11 +3,14 @@
 //! 提供对象存储实例的缓存、检索和高级文件操作功能。
 //! 支持在本地和远程存储之间进行文件复制、列举、删除等操作。
 
-use anyhow::{anyhow, Result};
-use crate::cfg::{create_trait_from_type_options, ConfigReloader, TypeOptions};
-use super::object_store_types::{FailedFile, GetDirectoryOptions, GetFileOptions, ObjectMeta, PutDirectoryOptions, PutFileOptions};
 use super::object_store::ObjectStore;
+use super::object_store_types::{
+    FailedFile, GetDirectoryOptions, GetFileOptions, ObjectMeta, PutDirectoryOptions,
+    PutFileOptions,
+};
+use crate::cfg::{create_trait_from_type_options, ConfigReloader, TypeOptions};
 use crate::oss::register_object_store;
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use std::collections::HashMap;
@@ -26,7 +29,7 @@ pub struct ObjectStoreManagerConfig {
     /// 对象存储配置列表
     ///
     /// 每个配置描述一个对象存储实例（S3、OSS、GCS 等）。
-    pub stores: Vec<TypeOptions>,
+    pub object_stores: Vec<TypeOptions>,
 
     /// 操作的默认选项
     ///
@@ -134,7 +137,13 @@ impl ObjectStoreManager {
         // 查找匹配的存储配置
         let store_config = self
             .find_store_config(&uri.provider, &uri.bucket)
-            .ok_or_else(|| anyhow!("No store configured for provider:{}, bucket:{}", uri.provider.scheme(), uri.bucket))?;
+            .ok_or_else(|| {
+                anyhow!(
+                    "No store configured for provider:{}, bucket:{}",
+                    uri.provider.scheme(),
+                    uri.bucket
+                )
+            })?;
 
         // 创建存储实例
         let store = create_store_from_config(store_config)?;
@@ -162,21 +171,70 @@ impl ObjectStoreManager {
     ///
     /// 配置的 `type_name` 必须能映射到指定的 `provider`
     /// 配置的 `bucket` 选项必须与指定的 `bucket` 相同
+    ///
+    /// 支持嵌套配置：对于 `AopObjectStore`，会递归解析其内部的 `object_store` 配置
     fn find_store_config(&self, provider: &Provider, bucket: &str) -> Option<&TypeOptions> {
-        self.config.stores.iter().find(|store| {
-            // 检查 provider 是否匹配
-            let type_matches = type_name_to_provider(&store.type_name) == Some(*provider);
+        self.config.object_stores.iter().find(|store| {
+            // 递归解析真实的 provider 和 bucket
+            let (real_provider, real_bucket) = self.parse_store_provider_and_bucket(store);
 
-            // 检查 bucket 是否匹配
-            let bucket_matches = store
-                .options
-                .get("bucket")
-                .and_then(|v| v.as_str())
-                .map(|b| b == bucket)
-                .unwrap_or(false);
+            let type_matches = real_provider == Some(*provider);
+            let bucket_matches = real_bucket.as_deref() == Some(bucket);
 
             type_matches && bucket_matches
         })
+    }
+
+    /// 解析存储配置的 provider 和 bucket
+    ///
+    /// # 参数
+    ///
+    /// - `store`: 存储配置
+    ///
+    /// # 返回值
+    ///
+    /// - `(Option<Provider>, Option<String>)`: provider 和 bucket
+    ///
+    /// # 行为说明
+    ///
+    /// - 对于 `AopObjectStore`，递归解析其内部的 `object_store` 配置
+    /// - 对于普通配置，直接从配置中提取 provider 和 bucket
+    fn parse_store_provider_and_bucket(
+        &self,
+        store: &TypeOptions,
+    ) -> (Option<Provider>, Option<String>) {
+        // 处理 AopObjectStore 嵌套配置
+        if store.type_name == "AopObjectStore" {
+            // 从嵌套的 object_store 配置中提取信息
+            if let Some(inner_store) = store.options.get("object_store") {
+                if let Some(inner_obj) = inner_store.as_object() {
+                    // 尝试解析 type 字段
+                    let type_name = inner_obj
+                        .get("type")
+                        .or_else(|| inner_obj.get("type_name"))
+                        .and_then(|v| v.as_str());
+
+                    if let Some(type_name) = type_name {
+                        let provider = type_name_to_provider(type_name);
+                        let bucket = inner_obj
+                            .get("options")
+                            .and_then(|v| v.get("bucket"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        return (provider, bucket);
+                    }
+                }
+            }
+        }
+
+        // 普通配置直接解析
+        let provider = type_name_to_provider(&store.type_name);
+        let bucket = store
+            .options
+            .get("bucket")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        (provider, bucket)
     }
 
     /// 获取配置的默认选项
@@ -262,8 +320,14 @@ impl ObjectStoreManager {
             }
             (Location::Remote(remote_uri), Location::Local(local_path)) => {
                 let store = self.get_store(remote_uri)?;
-                self.download(remote_uri, local_path, &options, store.as_ref(), concurrency)
-                    .await
+                self.download(
+                    remote_uri,
+                    local_path,
+                    &options,
+                    store.as_ref(),
+                    concurrency,
+                )
+                .await
             }
             (Location::Remote(src_uri), Location::Remote(dst_uri)) => {
                 let src_store = self.get_store(src_uri)?;
@@ -824,16 +888,25 @@ impl ObjectStoreManager {
         // Using try_join to run both operations in parallel on the same task
         let src_key = src_uri.key.clone();
         let download_future = src_store.get_stream(&src_key, Box::new(writer), get_options);
-        let upload_future = dst_store.put_stream(&dst_key, Box::new(reader), Some(size), put_options);
+        let upload_future =
+            dst_store.put_stream(&dst_key, Box::new(reader), Some(size), put_options);
 
         let (download_result, upload_result) = tokio::try_join!(
-            async { download_future.await.map_err(|e| anyhow!("Download failed: {}", e)) },
-            async { upload_future.await.map_err(|e| anyhow!("Upload failed: {}", e)) }
+            async {
+                download_future
+                    .await
+                    .map_err(|e| anyhow!("Download failed: {}", e))
+            },
+            async {
+                upload_future
+                    .await
+                    .map_err(|e| anyhow!("Upload failed: {}", e))
+            }
         )?;
 
         // Both operations succeeded
         let _ = download_result; // bytes downloaded
-        let _ = upload_result;   // unit
+        let _ = upload_result; // unit
 
         Ok(CpResult::single_success(size))
     }
@@ -940,11 +1013,20 @@ impl ObjectStoreManager {
 
         let src_key = src_key.to_string();
         let download_future = src_store.get_stream(&src_key, Box::new(writer), get_options);
-        let upload_future = dst_store.put_stream(dst_key, Box::new(reader), Some(size), put_options);
+        let upload_future =
+            dst_store.put_stream(dst_key, Box::new(reader), Some(size), put_options);
 
         tokio::try_join!(
-            async { download_future.await.map_err(|e| anyhow!("Download failed: {}", e)) },
-            async { upload_future.await.map_err(|e| anyhow!("Upload failed: {}", e)) }
+            async {
+                download_future
+                    .await
+                    .map_err(|e| anyhow!("Download failed: {}", e))
+            },
+            async {
+                upload_future
+                    .await
+                    .map_err(|e| anyhow!("Upload failed: {}", e))
+            }
         )?;
 
         Ok(size)
@@ -1108,7 +1190,7 @@ mod tests {
 
     fn create_test_config() -> ObjectStoreManagerConfig {
         ObjectStoreManagerConfig {
-            stores: vec![TypeOptions {
+            object_stores: vec![TypeOptions {
                 type_name: "AwsS3ObjectStore".to_string(),
                 options: json!({
                     "bucket": "test-bucket",
@@ -1131,5 +1213,59 @@ mod tests {
         assert_eq!(defaults.concurrency, 4);
         assert_eq!(defaults.part_size, 8 * 1024 * 1024);
         assert_eq!(defaults.multipart_threshold, 100 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_parse_aop_object_store_config() {
+        let config = ObjectStoreManagerConfig {
+            object_stores: vec![TypeOptions {
+                type_name: "AopObjectStore".to_string(),
+                options: json!({
+                    "object_store": {
+                        "type": "AwsS3ObjectStore",
+                        "options": {
+                            "bucket": "test-bucket",
+                            "region": "us-east-1"
+                        }
+                    }
+                }),
+            }],
+            defaults: Default::default(),
+        };
+
+        let manager = ObjectStoreManager::new(config);
+
+        // 测试解析 AopObjectStore 的内部配置
+        let store_config = manager.config.object_stores.first().unwrap();
+        let (provider, bucket) = manager.parse_store_provider_and_bucket(store_config);
+
+        assert_eq!(provider, Some(Provider::S3));
+        assert_eq!(bucket, Some("test-bucket".to_string()));
+    }
+
+    #[test]
+    fn test_find_aop_object_store_config() {
+        let config = ObjectStoreManagerConfig {
+            object_stores: vec![TypeOptions {
+                type_name: "AopObjectStore".to_string(),
+                options: json!({
+                    "object_store": {
+                        "type": "AwsS3ObjectStore",
+                        "options": {
+                            "bucket": "test-bucket",
+                            "region": "us-east-1"
+                        }
+                    }
+                }),
+            }],
+            defaults: Default::default(),
+        };
+
+        let manager = ObjectStoreManager::new(config);
+
+        // 测试能够通过 Provider 和 bucket 找到 AopObjectStore 配置
+        let found_config = manager.find_store_config(&Provider::S3, "test-bucket");
+        assert!(found_config.is_some());
+        assert_eq!(found_config.unwrap().type_name, "AopObjectStore");
     }
 }
