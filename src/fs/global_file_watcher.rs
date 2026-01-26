@@ -7,10 +7,10 @@ use once_cell::sync::Lazy;
 use std::path::Path;
 use std::sync::Mutex;
 
-use crate::fs::watcher::{FileEvent, FileWatcher};
+use crate::fs::file_watcher::{FileEvent, FileWatcher};
 
 /// 全局文件监听器单例
-static GLOBAL_WATCHER: Lazy<Mutex<FileWatcher>> =
+static GLOBAL_FILE_WATCHER: Lazy<Mutex<FileWatcher>> =
     Lazy::new(|| Mutex::new(FileWatcher::default()));
 
 /// 监听文件变化（使用全局单例）
@@ -43,7 +43,7 @@ pub fn watch<F>(filepath: impl AsRef<Path>, handler: F) -> Result<()>
 where
     F: Fn(FileEvent) + Send + Sync + 'static,
 {
-    GLOBAL_WATCHER
+    GLOBAL_FILE_WATCHER
         .lock()
         .map_err(|e| anyhow!("获取全局锁失败: {}", e))?
         .watch(filepath, handler)
@@ -65,7 +65,7 @@ where
 /// unwatch_all();
 /// ```
 pub fn unwatch_all() {
-    if let Ok(mut watcher) = GLOBAL_WATCHER.lock() {
+    if let Ok(mut watcher) = GLOBAL_FILE_WATCHER.lock() {
         watcher.unwatch_all();
     }
 }
@@ -73,12 +73,12 @@ pub fn unwatch_all() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::fs;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
     use tempfile::TempDir;
-    use serial_test::serial;
 
     #[test]
     #[serial]

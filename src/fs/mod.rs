@@ -2,8 +2,8 @@
 //!
 //! 提供文件监听等功能
 
-pub mod global;
-pub mod watcher;
+pub mod file_watcher;
+pub mod global_file_watcher;
 
-pub use global::{unwatch_all, watch};
-pub use watcher::{FileEvent, FileWatcher};
+pub use file_watcher::{FileEvent, FileWatcher};
+pub use global_file_watcher::{unwatch_all, watch};
