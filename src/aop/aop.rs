@@ -11,7 +11,7 @@ use std::time::Duration;
 use crate::log::LoggerConfig;
 
 /// AOP 创建配置（用于创建新的 AOP 实例）
-#[derive(Debug, Clone, Deserialize, SmartDefault)]
+#[derive(Debug, Clone, Deserialize, SmartDefault, PartialEq)]
 #[serde(default)]
 pub struct AopCreateConfig {
     /// Logging 配置
@@ -22,7 +22,7 @@ pub struct AopCreateConfig {
 }
 
 /// Logging 配置
-#[derive(Debug, Clone, Deserialize, SmartDefault, Validate)]
+#[derive(Debug, Clone, Deserialize, SmartDefault, Validate, PartialEq)]
 #[serde(default)]
 pub struct LoggingConfig {
     /// Logger 配置
@@ -42,7 +42,7 @@ pub struct LoggingConfig {
 
 /// Retry 配置
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, SmartDefault, Validate)]
+#[derive(Debug, Clone, Deserialize, SmartDefault, Validate, PartialEq)]
 #[serde(default)]
 pub struct RetryConfig {
     /// 最大重试次数

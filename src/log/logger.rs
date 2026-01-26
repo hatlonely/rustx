@@ -9,7 +9,7 @@ use std::sync::{Arc, Once};
 use tokio::sync::RwLock;
 
 /// Logger 创建配置（用于创建新的 Logger 实例）
-#[derive(Debug, Clone, Deserialize, SmartDefault)]
+#[derive(Debug, Clone, Deserialize, SmartDefault, PartialEq)]
 #[serde(default)]
 pub struct LoggerCreateConfig {
     /// 日志级别
@@ -30,7 +30,7 @@ pub struct LoggerCreateConfig {
 /// 支持两种模式：
 /// - Reference: 引用已存在的 logger 实例（通过 $instance 字段）
 /// - Create: 创建新的 logger 实例
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum LoggerConfig {
     /// 引用一个已存在的 logger 实例

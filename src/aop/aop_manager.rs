@@ -1,4 +1,5 @@
 use crate::aop::{Aop, AopConfig};
+use crate::cfg::ConfigReloader;
 use anyhow::Result;
 use serde::Deserialize;
 use smart_default::SmartDefault;
@@ -22,6 +23,7 @@ pub struct AopManagerConfig {
 ///
 /// 全局单例，负责统一维护所有 Aop 实例
 pub struct AopManager {
+    config: Arc<RwLock<AopManagerConfig>>,
     pub(crate) aops: Arc<RwLock<HashMap<String, Arc<Aop>>>>,
     default: Arc<RwLock<Arc<Aop>>>,
 }
@@ -63,6 +65,7 @@ impl AopManager {
         };
 
         Ok(Self {
+            config: Arc::new(RwLock::new(config)),
             aops: Arc::new(RwLock::new(aops_map)),
             default: Arc::new(RwLock::new(default_aop)),
         })
@@ -139,6 +142,110 @@ impl AopManager {
     pub fn remove(&self, key: &str) -> Option<Arc<Aop>> {
         let mut aops = self.aops.write().unwrap();
         aops.remove(key)
+    }
+}
+
+/// 为 AopManager 实现 ConfigReloader trait
+///
+/// 支持配置热更新，采用增量更新策略：
+/// - 配置未变化的 Aop 实例会被保留
+/// - 配置变化的 Aop 实例会被重新创建
+/// - 新配置中不存在的 key 会被删除
+impl ConfigReloader<AopManagerConfig> for AopManager {
+    fn reload_config(&mut self, new_config: AopManagerConfig) -> Result<()> {
+        // 锁定旧配置和实例
+        let old_config = self.config.read().unwrap();
+        let old_aops = self.aops.read().unwrap();
+
+        // 创建新的 aops map
+        let mut new_aops = HashMap::new();
+        let mut reference_configs: Vec<(String, String)> = Vec::new();
+
+        // 第一步：处理所有 Create 模式的 aop
+        for (key, new_aop_config) in &new_config.aops {
+            match new_aop_config {
+                AopConfig::Reference { instance } => {
+                    // 记录引用关系，稍后处理
+                    reference_configs.push((key.clone(), instance.clone()));
+                }
+                AopConfig::Create(new_create_config) => {
+                    // 检查旧配置是否存在且相同
+                    let should_reuse = match old_config.aops.get(key) {
+                        Some(AopConfig::Create(old_create_config)) => {
+                            old_create_config == new_create_config
+                        }
+                        _ => false,
+                    };
+
+                    if should_reuse {
+                        // 配置未变化，复用旧实例
+                        if let Some(old_aop) = old_aops.get(key) {
+                            new_aops.insert(key.clone(), Arc::clone(old_aop));
+                            continue;
+                        }
+                    }
+
+                    // 配置变化或不存在，创建新实例
+                    let aop = Arc::new(Aop::new(new_create_config.clone())?);
+                    new_aops.insert(key.clone(), aop);
+                }
+            }
+        }
+
+        // 第二步：处理所有 Reference 模式的配置
+        for (key, instance) in reference_configs {
+            let aop = Self::resolve_aop_config_by_name(&instance, &new_aops)?;
+            new_aops.insert(key, aop);
+        }
+
+        // 第三步：处理默认 aop
+        let new_default_aop = match &new_config.default {
+            AopConfig::Reference { instance } => {
+                Self::resolve_aop_config_by_name(instance, &new_aops)?
+            }
+            AopConfig::Create(new_create_config) => {
+                // 检查旧 default 配置是否存在且相同
+                let should_reuse = match &old_config.default {
+                    AopConfig::Create(old_create_config) => {
+                        old_create_config == new_create_config
+                    }
+                    _ => false,
+                };
+
+                if should_reuse {
+                    // 配置未变化，复用旧实例
+                    let default_aop = self.default.read().unwrap();
+                    let old_default = (*default_aop).clone();
+                    drop(default_aop);
+                    old_default
+                } else {
+                    // 配置变化，创建新实例
+                    Arc::new(Aop::new(new_create_config.clone())?)
+                }
+            }
+        };
+
+        // 释放旧锁
+        drop(old_config);
+        drop(old_aops);
+
+        // 第四步：更新内部状态
+        {
+            let mut config_write = self.config.write().unwrap();
+            *config_write = new_config;
+        }
+
+        {
+            let mut aops_write = self.aops.write().unwrap();
+            *aops_write = new_aops;
+        }
+
+        {
+            let mut default_write = self.default.write().unwrap();
+            *default_write = new_default_aop;
+        }
+
+        Ok(())
     }
 }
 
@@ -340,6 +447,209 @@ mod tests {
         assert!(Arc::ptr_eq(&main_aop, &api_aop));
         assert!(Arc::ptr_eq(&main_aop, &service_aop));
         assert!(Arc::ptr_eq(&api_aop, &service_aop));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_config_reloader_keep_unchanged() -> Result<()> {
+        // 创建初始配置
+        let mut aops = HashMap::new();
+        aops.insert("main".to_string(), AopConfig::Create(create_test_aop_config()));
+        aops.insert("db".to_string(), AopConfig::Create(create_test_aop_config()));
+
+        let config1 = AopManagerConfig {
+            default: AopConfig::Create(create_test_aop_config()),
+            aops: aops.clone(),
+        };
+
+        let mut manager = AopManager::new(config1)?;
+
+        // 保存旧实例引用
+        let old_main = manager.get("main").unwrap();
+        let old_db = manager.get("db").unwrap();
+        let old_default = manager.get_default();
+
+        // 重载相同配置
+        let config2 = AopManagerConfig {
+            default: AopConfig::Create(create_test_aop_config()),
+            aops,
+        };
+
+        manager.reload_config(config2)?;
+
+        // 验证实例未被替换（配置未变化）
+        let new_main = manager.get("main").unwrap();
+        let new_db = manager.get("db").unwrap();
+        let new_default = manager.get_default();
+
+        assert!(Arc::ptr_eq(&old_main, &new_main));
+        assert!(Arc::ptr_eq(&old_db, &new_db));
+        assert!(Arc::ptr_eq(&old_default, &new_default));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_config_reloader_change_config() -> Result<()> {
+        // 创建初始配置
+        let mut aops = HashMap::new();
+        aops.insert("main".to_string(), AopConfig::Create(create_test_aop_config()));
+        aops.insert("db".to_string(), AopConfig::Create(create_test_aop_config()));
+
+        let config1 = AopManagerConfig {
+            default: AopConfig::Create(create_test_aop_config()),
+            aops,
+        };
+
+        let mut manager = AopManager::new(config1)?;
+
+        // 保存旧实例引用
+        let old_main = manager.get("main").unwrap();
+        let old_db = manager.get("db").unwrap();
+
+        // 创建不同的配置（修改重试次数）
+        let config_json = r#"{
+            retry: {
+                max_times: 5,
+                strategy: "constant",
+                delay: "100ms"
+            }
+        }"#;
+        let different_config = json5::from_str(config_json).unwrap();
+
+        // 重载配置（修改 main 的配置）
+        let mut new_aops = HashMap::new();
+        new_aops.insert("main".to_string(), AopConfig::Create(different_config));
+        new_aops.insert("db".to_string(), AopConfig::Create(create_test_aop_config()));
+
+        let config2 = AopManagerConfig {
+            default: AopConfig::Create(create_test_aop_config()),
+            aops: new_aops,
+        };
+
+        manager.reload_config(config2)?;
+
+        // 验证实例是否被替换
+        let new_main = manager.get("main").unwrap();
+        let new_db = manager.get("db").unwrap();
+
+        // main 的配置变了，应该被重建
+        assert!(!Arc::ptr_eq(&old_main, &new_main));
+        assert_eq!(new_main.retry_config.as_ref().unwrap().max_times, 5);
+
+        // db 的配置未变，应该复用旧实例
+        assert!(Arc::ptr_eq(&old_db, &new_db));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_config_reloader_add_remove_aop() -> Result<()> {
+        // 创建初始配置
+        let mut aops = HashMap::new();
+        aops.insert("main".to_string(), AopConfig::Create(create_test_aop_config()));
+        aops.insert("db".to_string(), AopConfig::Create(create_test_aop_config()));
+
+        let config1 = AopManagerConfig {
+            default: AopConfig::Create(create_test_aop_config()),
+            aops,
+        };
+
+        let mut manager = AopManager::new(config1)?;
+
+        // 保存旧实例引用
+        let old_main = manager.get("main").unwrap();
+
+        // 重载配置（删除 db，添加 api）
+        let mut new_aops = HashMap::new();
+        new_aops.insert("main".to_string(), AopConfig::Create(create_test_aop_config()));
+        new_aops.insert("api".to_string(), AopConfig::Create(create_test_aop_config()));
+
+        let config2 = AopManagerConfig {
+            default: AopConfig::Create(create_test_aop_config()),
+            aops: new_aops,
+        };
+
+        manager.reload_config(config2)?;
+
+        // 验证结果
+        assert!(manager.contains("main"));
+        assert!(!manager.contains("db")); // db 被删除
+        assert!(manager.contains("api")); // api 被添加
+
+        // main 应该复用旧实例
+        let new_main = manager.get("main").unwrap();
+        assert!(Arc::ptr_eq(&old_main, &new_main));
+
+        // db 已不存在
+        assert!(manager.get("db").is_none());
+
+        // api 是新创建的
+        assert!(manager.get("api").is_some());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_config_reloader_with_reference() -> Result<()> {
+        // 创建初始配置
+        let mut aops = HashMap::new();
+        aops.insert("main".to_string(), AopConfig::Create(create_test_aop_config()));
+        aops.insert(
+            "api".to_string(),
+            AopConfig::Reference {
+                instance: "main".to_string(),
+            },
+        );
+
+        let config1 = AopManagerConfig {
+            default: AopConfig::Create(create_test_aop_config()),
+            aops,
+        };
+
+        let mut manager = AopManager::new(config1)?;
+
+        // 验证初始引用关系
+        let main1 = manager.get("main").unwrap();
+        let api1 = manager.get("api").unwrap();
+        assert!(Arc::ptr_eq(&main1, &api1));
+
+        // 创建不同的配置
+        let config_json = r#"{
+            retry: {
+                max_times: 10,
+                strategy: "exponential",
+                delay: "200ms"
+            }
+        }"#;
+        let different_config = json5::from_str(config_json).unwrap();
+
+        // 重载配置（修改 main 的配置）
+        let mut new_aops = HashMap::new();
+        new_aops.insert("main".to_string(), AopConfig::Create(different_config));
+        new_aops.insert(
+            "api".to_string(),
+            AopConfig::Reference {
+                instance: "main".to_string(),
+            },
+        );
+
+        let config2 = AopManagerConfig {
+            default: AopConfig::Create(create_test_aop_config()),
+            aops: new_aops,
+        };
+
+        manager.reload_config(config2)?;
+
+        // 验证引用关系仍然保持
+        let main2 = manager.get("main").unwrap();
+        let api2 = manager.get("api").unwrap();
+        assert!(Arc::ptr_eq(&main2, &api2));
+
+        // 验证 main 被重建
+        assert!(!Arc::ptr_eq(&main1, &main2));
+        assert_eq!(main2.retry_config.as_ref().unwrap().max_times, 10);
 
         Ok(())
     }
