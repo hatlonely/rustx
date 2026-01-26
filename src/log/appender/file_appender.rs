@@ -23,28 +23,6 @@ pub struct FileAppender {
 }
 
 impl FileAppender {
-    /// 从配置创建 FileAppender（异步方法，推荐使用）
-    pub async fn from_config(config: FileAppenderConfig) -> Result<Self> {
-        let path = PathBuf::from(&config.file_path);
-
-        // 确保父目录存在
-        if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-
-        let file = tokio::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-            .await?;
-
-        Ok(Self {
-            file: Arc::new(Mutex::new(file)),
-            config,
-        })
-    }
-
-    /// 同步构造方法（使用阻塞 I/O，用于支持 From trait）
     pub fn new(config: FileAppenderConfig) -> Self {
         use std::fs::OpenOptions;
 
@@ -109,7 +87,7 @@ mod tests {
             file_path: temp_file.path().to_string_lossy().to_string(),
         };
 
-        let appender = FileAppender::from_config(config).await?;
+        let appender = FileAppender::new(config);
 
         appender.append("First message").await?;
         appender.append("Second message").await?;
@@ -129,7 +107,7 @@ mod tests {
             file_path: temp_file.path().to_string_lossy().to_string(),
         };
 
-        let appender = FileAppender::from_config(config).await?;
+        let appender = FileAppender::new(config);
         appender.append("Message").await?;
         appender.flush().await?;
 
@@ -166,7 +144,7 @@ mod tests {
             file_path: log_path.to_string_lossy().to_string(),
         };
 
-        let appender = FileAppender::from_config(config).await?;
+        let appender = FileAppender::new(config);
         appender.append("Test").await?;
 
         // 验证文件被创建

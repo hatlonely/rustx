@@ -92,6 +92,10 @@ pub struct RollingFileAppenderConfig {
     /// 是否压缩旧日志文件
     #[default(false)]
     pub compress: bool,
+
+    /// 是否每次写入后立即刷新到磁盘，默认 false 以提高性能
+    #[default(false)]
+    pub immediate_flush: bool,
 }
 
 /// 切分模式（内部使用）
@@ -491,18 +495,24 @@ impl LogAppender for RollingFileAppender {
     async fn append(&self, formatted_message: &str) -> Result<()> {
         use tokio::io::AsyncWriteExt;
 
-        let message_size = formatted_message.as_bytes().len() + 1; // +1 for newline
+        // 预先拼接消息和换行符，减少系统调用
+        let mut message_with_newline = String::with_capacity(formatted_message.len() + 1);
+        message_with_newline.push_str(formatted_message);
+        message_with_newline.push('\n');
+        let message_bytes = message_with_newline.as_bytes();
+        let message_size = message_bytes.len();
 
         // 检查是否需要切分
         if self.should_rollover(message_size).await {
             self.do_rollover().await?;
         }
 
-        // 写入日志
+        // 写入日志（一次写入）
         let mut current = self.current_file.lock().await;
-        current.file.write_all(formatted_message.as_bytes()).await?;
-        current.file.write_all(b"\n").await?;
-        current.file.flush().await?;
+        current.file.write_all(message_bytes).await?;
+        if self.config.immediate_flush {
+            current.file.flush().await?;
+        }
         current.size += message_size;
 
         Ok(())
@@ -550,9 +560,10 @@ mod tests {
         assert_eq!(config.file_path, "app.log");
         assert_eq!(config.max_size, None);
         assert_eq!(config.max_files, None);
-        assert!(config.compress == false);
+        assert!(!config.compress);
         assert_eq!(config.time_policy, Some(TimePolicy::Hourly));
         assert_eq!(config.max_hours, None);
+        assert!(!config.immediate_flush);
     }
 
     #[tokio::test]
