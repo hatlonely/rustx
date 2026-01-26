@@ -50,21 +50,19 @@
 
 pub mod appender;
 pub mod formatter;
-pub mod global;
-pub mod level;
+pub mod global_logger_manager;
+pub mod log_record;
 pub mod logger;
 pub mod logger_manager;
 pub mod macros;
-pub mod record;
 
 // 重新导出核心类型
 pub use appender::LogAppender;
 pub use formatter::LogFormatter;
-pub use level::LogLevel;
 pub use logger::{Logger, LoggerConfig, LoggerCreateConfig};
 pub use logger_manager::{LoggerManager, LoggerManagerConfig};
 
-pub use global::{
+pub use global_logger_manager::{
     add_logger,
     debug,
     debugm,
@@ -87,7 +85,7 @@ pub use global::{
 
 // 重新导出宏（宏通过 #[macro_export] 在 crate root 定义，这里重新导入以方便使用）
 // 注意：info, debug, warn, error, trace 宏需要从 crate root 导入
-pub use record::{LogRecord, MetadataValue};
+pub use log_record::{LogLevel, LogRecord, MetadataValue};
 
 // 重新导出子模块的注册函数
 pub use appender::{

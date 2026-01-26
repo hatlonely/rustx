@@ -1,4 +1,4 @@
-use crate::log::record::LogRecord;
+use crate::log::log_record::LogRecord;
 use anyhow::Result;
 
 /// 日志格式化器 trait

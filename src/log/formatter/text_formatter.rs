@@ -1,5 +1,5 @@
 use crate::log::formatter::LogFormatter;
-use crate::log::record::LogRecord;
+use crate::log::log_record::LogRecord;
 use anyhow::Result;
 use serde::Deserialize;
 use smart_default::SmartDefault;
@@ -30,11 +30,15 @@ impl LogFormatter for TextFormatter {
     fn format(&self, record: &LogRecord) -> Result<String> {
         // 预分配容量：估算各个部分的长度
         // 时间戳约 28 字节 + 线程ID约 20 字节 + 级别 5 字节 + 消息 + metadata + 分隔符
-        let metadata_len: usize = record.metadata
+        let metadata_len: usize = record
+            .metadata
             .iter()
             .map(|(k, v)| k.len() + v.to_string().len() + 2)
             .sum();
-        let capacity = 50 + record.message.len() + record.thread_id.len() + metadata_len
+        let capacity = 50
+            + record.message.len()
+            + record.thread_id.len()
+            + metadata_len
             + record.file.as_ref().map_or(0, |f| f.len() + 10);
         let mut result = String::with_capacity(capacity);
 
@@ -116,15 +120,15 @@ impl LogFormatter for TextFormatter {
 }
 
 /// 获取带颜色的日志级别字符串（预计算缓存）
-fn get_colored_level(level: crate::log::level::LogLevel) -> &'static str {
-    use crate::log::level::LogLevel;
+fn get_colored_level(level: crate::log::LogLevel) -> &'static str {
+    use crate::log::LogLevel;
     // 使用 once_cell 或 lazy_static 可以避免每次都计算
     // 这里使用 static 字符串字面量来避免运行时开销
     match level {
-        LogLevel::Error => "\u{1b}[31mERROR\u{1b}[0m",  // 红色
-        LogLevel::Warn => "\u{1b}[33mWARN \u{1b}[0m",   // 黄色
-        LogLevel::Info => "\u{1b}[32mINFO \u{1b}[0m",   // 绿色
-        LogLevel::Debug => "\u{1b}[36mDEBUG\u{1b}[0m",  // 青色
+        LogLevel::Error => "\u{1b}[31mERROR\u{1b}[0m", // 红色
+        LogLevel::Warn => "\u{1b}[33mWARN \u{1b}[0m",  // 黄色
+        LogLevel::Info => "\u{1b}[32mINFO \u{1b}[0m",  // 绿色
+        LogLevel::Debug => "\u{1b}[36mDEBUG\u{1b}[0m", // 青色
         LogLevel::Trace => "\u{1b}[37;2mTRACE\u{1b}[0m", // 白色+dimmed
     }
 }
@@ -166,7 +170,8 @@ fn format_timestamp_to(buffer: &mut String, time: std::time::SystemTime) {
         buffer,
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
         year, month, day, hours, mins, secs, millis
-    ).unwrap();
+    )
+    .unwrap();
 }
 
 // 使用宏实现 From trait
@@ -176,19 +181,14 @@ crate::impl_box_from!(TextFormatter => dyn LogFormatter);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::log::level::LogLevel;
+    use crate::log::LogLevel;
 
     #[test]
     fn test_text_formatter_format() {
-        let config = TextFormatterConfig {
-            colored: false,
-        };
+        let config = TextFormatterConfig { colored: false };
 
         let formatter = TextFormatter::new(config);
-        let record = LogRecord::new(
-            LogLevel::Info,
-            "test message".to_string(),
-        );
+        let record = LogRecord::new(LogLevel::Info, "test message".to_string());
 
         let formatted = formatter.format(&record).unwrap();
         println!("{}", formatted);
@@ -204,16 +204,11 @@ mod tests {
 
     #[test]
     fn test_text_formatter_with_location() {
-        let config = TextFormatterConfig {
-            colored: false,
-        };
+        let config = TextFormatterConfig { colored: false };
 
         let formatter = TextFormatter::new(config);
-        let record = LogRecord::new(
-            LogLevel::Error,
-            "error message".to_string(),
-        )
-        .with_location("file.rs".to_string(), 42);
+        let record = LogRecord::new(LogLevel::Error, "error message".to_string())
+            .with_location("file.rs".to_string(), 42);
 
         let formatted = formatter.format(&record).unwrap();
         println!("{}", formatted);
@@ -224,15 +219,10 @@ mod tests {
 
     #[test]
     fn test_text_formatter_thread_always_present() {
-        let config = TextFormatterConfig {
-            colored: false,
-        };
+        let config = TextFormatterConfig { colored: false };
 
         let formatter = TextFormatter::new(config);
-        let record = LogRecord::new(
-            LogLevel::Debug,
-            "debug message".to_string(),
-        );
+        let record = LogRecord::new(LogLevel::Debug, "debug message".to_string());
 
         let formatted = formatter.format(&record).unwrap();
         println!("{}", formatted);
@@ -251,9 +241,7 @@ mod tests {
 
     #[test]
     fn test_text_formatter_from_config() {
-        let config = TextFormatterConfig {
-            colored: false,
-        };
+        let config = TextFormatterConfig { colored: false };
 
         let formatter = TextFormatter::from(config);
         assert_eq!(formatter.config.colored, false);
@@ -261,18 +249,13 @@ mod tests {
 
     #[test]
     fn test_text_formatter_with_metadata() {
-        let config = TextFormatterConfig {
-            colored: false,
-        };
+        let config = TextFormatterConfig { colored: false };
 
         let formatter = TextFormatter::new(config);
-        let record = LogRecord::new(
-            LogLevel::Info,
-            "user logged in".to_string(),
-        )
-        .with_metadata("user_id", 12345)
-        .with_metadata("username", "alice")
-        .with_metadata("success", true);
+        let record = LogRecord::new(LogLevel::Info, "user logged in".to_string())
+            .with_metadata("user_id", 12345)
+            .with_metadata("username", "alice")
+            .with_metadata("success", true);
 
         let formatted = formatter.format(&record).unwrap();
         println!("{}", formatted);
@@ -292,11 +275,8 @@ mod tests {
         let config = TextFormatterConfig::default();
         let formatter = TextFormatter::new(config);
 
-        let record = LogRecord::new(
-            LogLevel::Debug,
-            "complex data".to_string(),
-        )
-        .with_metadata("data", json!({"nested": {"value": 123}}));
+        let record = LogRecord::new(LogLevel::Debug, "complex data".to_string())
+            .with_metadata("data", json!({"nested": {"value": 123}}));
 
         let formatted = formatter.format(&record).unwrap();
         println!("{}", formatted);
@@ -307,15 +287,10 @@ mod tests {
 
     #[test]
     fn test_text_formatter_colored() {
-        let config = TextFormatterConfig {
-            colored: true,
-        };
+        let config = TextFormatterConfig { colored: true };
 
         let formatter = TextFormatter::new(config);
-        let record = LogRecord::new(
-            LogLevel::Error,
-            "error message".to_string(),
-        );
+        let record = LogRecord::new(LogLevel::Error, "error message".to_string());
 
         let formatted = formatter.format(&record).unwrap();
         println!("{}", formatted);

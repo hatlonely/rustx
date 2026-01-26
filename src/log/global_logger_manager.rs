@@ -80,7 +80,7 @@ pub async fn log(record: crate::log::LogRecord) -> Result<()> {
 pub async fn logm(
     level: crate::log::LogLevel,
     message: impl Into<String>,
-    metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::record::MetadataValue)>,
+    metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
 ) -> Result<()> {
     get_default_logger().logm(level, message, metadata).await
 }
@@ -113,7 +113,7 @@ pub async fn error(message: impl Into<String>) -> Result<()> {
 /// 使用默认 logger 记录 TRACE 级别日志（带 metadata）
 pub async fn tracem(
     message: impl Into<String>,
-    metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::record::MetadataValue)>,
+    metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
 ) -> Result<()> {
     get_default_logger().tracem(message, metadata).await
 }
@@ -121,7 +121,7 @@ pub async fn tracem(
 /// 使用默认 logger 记录 DEBUG 级别日志（带 metadata）
 pub async fn debugm(
     message: impl Into<String>,
-    metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::record::MetadataValue)>,
+    metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
 ) -> Result<()> {
     get_default_logger().debugm(message, metadata).await
 }
@@ -129,7 +129,7 @@ pub async fn debugm(
 /// 使用默认 logger 记录 INFO 级别日志（带 metadata）
 pub async fn infom(
     message: impl Into<String>,
-    metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::record::MetadataValue)>,
+    metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
 ) -> Result<()> {
     get_default_logger().infom(message, metadata).await
 }
@@ -137,7 +137,7 @@ pub async fn infom(
 /// 使用默认 logger 记录 WARN 级别日志（带 metadata）
 pub async fn warnm(
     message: impl Into<String>,
-    metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::record::MetadataValue)>,
+    metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
 ) -> Result<()> {
     get_default_logger().warnm(message, metadata).await
 }
@@ -145,7 +145,7 @@ pub async fn warnm(
 /// 使用默认 logger 记录 ERROR 级别日志（带 metadata）
 pub async fn errorm(
     message: impl Into<String>,
-    metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::record::MetadataValue)>,
+    metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
 ) -> Result<()> {
     get_default_logger().errorm(message, metadata).await
 }

@@ -1,5 +1,5 @@
 use crate::log::formatter::LogFormatter;
-use crate::log::record::LogRecord;
+use crate::log::log_record::LogRecord;
 use anyhow::Result;
 use serde::Deserialize;
 use smart_default::SmartDefault;
@@ -16,7 +16,7 @@ pub struct JsonFormatter {}
 
 impl JsonFormatter {
     pub fn new(_: JsonFormatterConfig) -> Self {
-        Self {  }
+        Self {}
     }
 }
 
@@ -33,17 +33,14 @@ crate::impl_box_from!(JsonFormatter => dyn LogFormatter);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::log::level::LogLevel;
+    use crate::log::LogLevel;
 
     #[test]
     fn test_json_formatter_format() {
         let config = JsonFormatterConfig::default();
         let formatter = JsonFormatter::new(config);
 
-        let record = LogRecord::new(
-            LogLevel::Info,
-            "test message".to_string(),
-        );
+        let record = LogRecord::new(LogLevel::Info, "test message".to_string());
 
         let formatted = formatter.format(&record).unwrap();
         println!("{}", formatted);
@@ -61,11 +58,8 @@ mod tests {
         let config = JsonFormatterConfig::default();
         let formatter = JsonFormatter::new(config);
 
-        let record = LogRecord::new(
-            LogLevel::Error,
-            "error message".to_string(),
-        )
-        .with_location("file.rs".to_string(), 42);
+        let record = LogRecord::new(LogLevel::Error, "error message".to_string())
+            .with_location("file.rs".to_string(), 42);
 
         let formatted = formatter.format(&record).unwrap();
         let value: serde_json::Value = serde_json::from_str(&formatted).unwrap();
@@ -79,11 +73,8 @@ mod tests {
         let config = JsonFormatterConfig::default();
         let formatter = JsonFormatter::new(config);
 
-        let record = LogRecord::new(
-            LogLevel::Debug,
-            "debug message".to_string(),
-        )
-        .with_module("my_module".to_string());
+        let record = LogRecord::new(LogLevel::Debug, "debug message".to_string())
+            .with_module("my_module".to_string());
 
         let formatted = formatter.format(&record).unwrap();
         let value: serde_json::Value = serde_json::from_str(&formatted).unwrap();
@@ -96,13 +87,10 @@ mod tests {
         let config = JsonFormatterConfig::default();
         let formatter = JsonFormatter::new(config);
 
-        let record = LogRecord::new(
-            LogLevel::Info,
-            "user logged in".to_string(),
-        )
-        .with_metadata("user_id", 12345)
-        .with_metadata("username", "alice")
-        .with_metadata("success", true);
+        let record = LogRecord::new(LogLevel::Info, "user logged in".to_string())
+            .with_metadata("user_id", 12345)
+            .with_metadata("username", "alice")
+            .with_metadata("success", true);
 
         let formatted = formatter.format(&record).unwrap();
         println!("{}", formatted);

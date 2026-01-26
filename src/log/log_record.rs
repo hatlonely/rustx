@@ -1,8 +1,50 @@
-use crate::log::level::LogLevel;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
-use std::time::SystemTime;
 use std::fmt;
+use std::str::FromStr;
+use std::time::SystemTime;
+
+/// 日志级别
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum LogLevel {
+    /// 最详细的日志
+    Trace = 0,
+    /// 调试信息
+    Debug = 1,
+    /// 一般信息
+    Info = 2,
+    /// 警告信息
+    Warn = 3,
+    /// 错误信息
+    Error = 4,
+}
+
+impl FromStr for LogLevel {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "trace" => Ok(LogLevel::Trace),
+            "debug" => Ok(LogLevel::Debug),
+            "info" => Ok(LogLevel::Info),
+            "warn" => Ok(LogLevel::Warn),
+            "error" => Ok(LogLevel::Error),
+            _ => Err(format!("invalid log level: {}", s)),
+        }
+    }
+}
+
+impl std::fmt::Display for LogLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LogLevel::Trace => write!(f, "TRACE"),
+            LogLevel::Debug => write!(f, "DEBUG"),
+            LogLevel::Info => write!(f, "INFO"),
+            LogLevel::Warn => write!(f, "WARN"),
+            LogLevel::Error => write!(f, "ERROR"),
+        }
+    }
+}
 
 /// 元数据值，支持多种类型
 #[derive(Debug, Clone)]
@@ -89,7 +131,11 @@ impl LogRecord {
     }
 
     /// 添加元数据
-    pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<MetadataValue>) -> Self {
+    pub fn with_metadata(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<MetadataValue>,
+    ) -> Self {
         self.metadata.push((key.into(), value.into()));
         self
     }
@@ -197,9 +243,9 @@ impl Serialize for LogRecord {
     where
         S: Serializer,
     {
-        use std::time::UNIX_EPOCH;
         use serde::ser::SerializeMap;
         use serde_json::Map;
+        use std::time::UNIX_EPOCH;
 
         // 计算 timestamp（毫秒）
         let timestamp = self
@@ -209,7 +255,9 @@ impl Serialize for LogRecord {
             .as_millis() as u64;
 
         // 将 Vec 转换为 Map 以便序列化为 JSON 对象
-        let metadata_map: Map<String, Value> = self.metadata.iter()
+        let metadata_map: Map<String, Value> = self
+            .metadata
+            .iter()
             .map(|(k, v)| {
                 let json_value = serde_json::to_value(v).unwrap_or(Value::Null);
                 (k.clone(), json_value)
@@ -241,11 +289,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_log_level_from_str() {
+        assert_eq!(LogLevel::from_str("trace").unwrap(), LogLevel::Trace);
+        assert_eq!(LogLevel::from_str("DEBUG").unwrap(), LogLevel::Debug);
+        assert_eq!(LogLevel::from_str("Info").unwrap(), LogLevel::Info);
+        assert_eq!(LogLevel::from_str("WARN").unwrap(), LogLevel::Warn);
+        assert_eq!(LogLevel::from_str("error").unwrap(), LogLevel::Error);
+    }
+
+    #[test]
+    fn test_log_level_from_str_invalid() {
+        assert!(LogLevel::from_str("invalid").is_err());
+    }
+
+    #[test]
+    fn test_log_level_display() {
+        assert_eq!(LogLevel::Trace.to_string(), "TRACE");
+        assert_eq!(LogLevel::Debug.to_string(), "DEBUG");
+        assert_eq!(LogLevel::Info.to_string(), "INFO");
+        assert_eq!(LogLevel::Warn.to_string(), "WARN");
+        assert_eq!(LogLevel::Error.to_string(), "ERROR");
+    }
+
+    #[test]
+    fn test_log_level_ordering() {
+        assert!(LogLevel::Error > LogLevel::Warn);
+        assert!(LogLevel::Warn > LogLevel::Info);
+        assert!(LogLevel::Info > LogLevel::Debug);
+        assert!(LogLevel::Debug > LogLevel::Trace);
+    }
+
+    #[test]
     fn test_log_record_new() {
-        let record = LogRecord::new(
-            LogLevel::Info,
-            "test message".to_string(),
-        );
+        let record = LogRecord::new(LogLevel::Info, "test message".to_string());
 
         assert_eq!(record.level, LogLevel::Info);
         assert_eq!(record.message, "test message");
@@ -259,13 +335,10 @@ mod tests {
 
     #[test]
     fn test_log_record_with_metadata() {
-        let record = LogRecord::new(
-            LogLevel::Info,
-            "test message".to_string(),
-        )
-        .with_metadata("user_id", 12345)
-        .with_metadata("username", "alice")
-        .with_metadata("success", true);
+        let record = LogRecord::new(LogLevel::Info, "test message".to_string())
+            .with_metadata("user_id", 12345)
+            .with_metadata("username", "alice")
+            .with_metadata("success", true);
 
         assert_eq!(record.metadata.len(), 3);
         assert_eq!(record.metadata[0].0, "user_id");
@@ -278,11 +351,8 @@ mod tests {
 
     #[test]
     fn test_log_record_with_location() {
-        let record = LogRecord::new(
-            LogLevel::Debug,
-            "message".to_string(),
-        )
-        .with_location("file.rs".to_string(), 42);
+        let record = LogRecord::new(LogLevel::Debug, "message".to_string())
+            .with_location("file.rs".to_string(), 42);
 
         assert_eq!(record.file, Some("file.rs".to_string()));
         assert_eq!(record.line, Some(42));
@@ -290,23 +360,17 @@ mod tests {
 
     #[test]
     fn test_log_record_with_module() {
-        let record = LogRecord::new(
-            LogLevel::Error,
-            "error".to_string(),
-        )
-        .with_module("my_module".to_string());
+        let record = LogRecord::new(LogLevel::Error, "error".to_string())
+            .with_module("my_module".to_string());
 
         assert_eq!(record.module, Some("my_module".to_string()));
     }
 
     #[test]
     fn test_log_record_builder_pattern() {
-        let record = LogRecord::new(
-            LogLevel::Warn,
-            "warning".to_string(),
-        )
-        .with_module("main".to_string())
-        .with_location("main.rs".to_string(), 10);
+        let record = LogRecord::new(LogLevel::Warn, "warning".to_string())
+            .with_module("main".to_string())
+            .with_location("main.rs".to_string(), 10);
 
         assert_eq!(record.level, LogLevel::Warn);
         assert_eq!(record.module, Some("main".to_string()));
@@ -316,7 +380,10 @@ mod tests {
 
     #[test]
     fn test_metadata_value_display() {
-        assert_eq!(format!("{}", MetadataValue::String("hello".to_string())), "hello");
+        assert_eq!(
+            format!("{}", MetadataValue::String("hello".to_string())),
+            "hello"
+        );
         assert_eq!(format!("{}", MetadataValue::I64(42)), "42");
         assert_eq!(format!("{}", MetadataValue::U64(100)), "100");
         assert_eq!(format!("{}", MetadataValue::F64(3.14)), "3.14");
@@ -327,11 +394,26 @@ mod tests {
 
     #[test]
     fn test_metadata_value_serialize() {
-        assert_eq!(serde_json::to_string(&MetadataValue::String("hello".to_string())).unwrap(), "\"hello\"");
-        assert_eq!(serde_json::to_string(&MetadataValue::I64(42)).unwrap(), "42");
-        assert_eq!(serde_json::to_string(&MetadataValue::U64(100)).unwrap(), "100");
-        assert_eq!(serde_json::to_string(&MetadataValue::F64(3.14)).unwrap(), "3.14");
-        assert_eq!(serde_json::to_string(&MetadataValue::Bool(true)).unwrap(), "true");
+        assert_eq!(
+            serde_json::to_string(&MetadataValue::String("hello".to_string())).unwrap(),
+            "\"hello\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MetadataValue::I64(42)).unwrap(),
+            "42"
+        );
+        assert_eq!(
+            serde_json::to_string(&MetadataValue::U64(100)).unwrap(),
+            "100"
+        );
+        assert_eq!(
+            serde_json::to_string(&MetadataValue::F64(3.14)).unwrap(),
+            "3.14"
+        );
+        assert_eq!(
+            serde_json::to_string(&MetadataValue::Bool(true)).unwrap(),
+            "true"
+        );
         assert_eq!(serde_json::to_string(&MetadataValue::Null).unwrap(), "null");
     }
 
@@ -339,14 +421,14 @@ mod tests {
     fn test_log_record_serialize_with_metadata() {
         let metadata = vec![
             ("user_id".to_string(), MetadataValue::I64(12345)),
-            ("username".to_string(), MetadataValue::String("alice".to_string())),
+            (
+                "username".to_string(),
+                MetadataValue::String("alice".to_string()),
+            ),
         ];
 
         let record = LogRecord::new(LogLevel::Info, "test message".to_string());
-        let record_with_metadata = LogRecord {
-            metadata,
-            ..record
-        };
+        let record_with_metadata = LogRecord { metadata, ..record };
 
         let json = serde_json::to_string(&record_with_metadata).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
