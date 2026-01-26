@@ -53,8 +53,8 @@ pub mod formatter;
 pub mod global;
 pub mod level;
 pub mod logger;
+pub mod logger_manager;
 pub mod macros;
-pub mod manager;
 pub mod record;
 
 // 重新导出核心类型
@@ -62,13 +62,27 @@ pub use appender::LogAppender;
 pub use formatter::LogFormatter;
 pub use level::LogLevel;
 pub use logger::{Logger, LoggerConfig, LoggerCreateConfig};
-pub use manager::{LoggerManager, LoggerManagerConfig};
+pub use logger_manager::{LoggerManager, LoggerManagerConfig};
 
 pub use global::{
-    global_logger_manager, get_logger, get_default_logger, add_logger, init_logger_manager,
+    add_logger,
+    debug,
+    debugm,
+    error,
+    errorm,
+    get_default_logger,
+    get_logger,
+    global_logger_manager,
+    info,
+    infom,
+    init_logger_manager,
     // 默认 logger 的便捷 log 方法
-    log, logm, trace, debug, info, warn, error,
-    tracem, debugm, infom, warnm, errorm,
+    log,
+    logm,
+    trace,
+    tracem,
+    warn,
+    warnm,
 };
 
 // 重新导出宏（宏通过 #[macro_export] 在 crate root 定义，这里重新导入以方便使用）
@@ -76,5 +90,10 @@ pub use global::{
 pub use record::{LogRecord, MetadataValue};
 
 // 重新导出子模块的注册函数
-pub use appender::{register_appenders, ConsoleAppender, ConsoleAppenderConfig, FileAppender, FileAppenderConfig, Target};
-pub use formatter::{register_formatters, JsonFormatter, JsonFormatterConfig, TextFormatter, TextFormatterConfig};
+pub use appender::{
+    register_appenders, ConsoleAppender, ConsoleAppenderConfig, FileAppender, FileAppenderConfig,
+    Target,
+};
+pub use formatter::{
+    register_formatters, JsonFormatter, JsonFormatterConfig, TextFormatter, TextFormatterConfig,
+};

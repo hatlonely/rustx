@@ -1,6 +1,6 @@
+use crate::log::logger_manager::LoggerManager;
+use crate::log::logger_manager::LoggerManagerConfig;
 use crate::log::Logger;
-use crate::log::manager::LoggerManager;
-use crate::log::manager::LoggerManagerConfig;
 use anyhow::Result;
 use std::sync::Arc;
 
@@ -157,7 +157,8 @@ mod tests {
 
     /// 辅助函数：创建测试用的 LoggerCreateConfig
     fn create_test_logger_config(level: &str) -> crate::log::logger::LoggerCreateConfig {
-        let config_json = format!(r#"{{
+        let config_json = format!(
+            r#"{{
             level: "{}",
             formatter: {{
                 type: "TextFormatter",
@@ -167,7 +168,9 @@ mod tests {
                 type: "ConsoleAppender",
                 options: {{}}
             }}
-        }}"#, level);
+        }}"#,
+            level
+        );
 
         json5::from_str(&config_json).expect("Failed to parse LoggerCreateConfig")
     }
@@ -193,8 +196,14 @@ mod tests {
     #[tokio::test]
     async fn test_init_logger_manager() -> Result<()> {
         let mut loggers = std::collections::HashMap::new();
-        loggers.insert("main".to_string(), LoggerConfig::Create(create_test_logger_config("info")));
-        loggers.insert("db".to_string(), LoggerConfig::Create(create_test_logger_config("debug")));
+        loggers.insert(
+            "main".to_string(),
+            LoggerConfig::Create(create_test_logger_config("info")),
+        );
+        loggers.insert(
+            "db".to_string(),
+            LoggerConfig::Create(create_test_logger_config("debug")),
+        );
 
         let config = LoggerManagerConfig {
             default: LoggerConfig::Create(create_test_logger_config("warn")),
@@ -218,7 +227,10 @@ mod tests {
 
         // 测试默认 logger 可以正常工作
         let result = default_logger.info("Test default logger message").await;
-        assert!(result.is_ok(), "Default logger should be able to log messages");
+        assert!(
+            result.is_ok(),
+            "Default logger should be able to log messages"
+        );
 
         Ok(())
     }
@@ -249,29 +261,23 @@ mod tests {
         // 测试全局便捷函数（带 metadata）
         let result = infom(
             "user logged in",
-            vec![
-                ("user_id", 12345i64.into()),
-                ("username", "alice".into())
-            ]
-        ).await;
+            vec![("user_id", 12345i64.into()), ("username", "alice".into())],
+        )
+        .await;
         assert!(result.is_ok(), "Global infom function should work");
 
         let result = debugm(
             "processing request",
-            vec![
-                ("endpoint", "/api/users".into()),
-                ("method", "GET".into())
-            ]
-        ).await;
+            vec![("endpoint", "/api/users".into()), ("method", "GET".into())],
+        )
+        .await;
         assert!(result.is_ok(), "Global debugm function should work");
 
         let result = warnm(
             "high memory usage",
-            vec![
-                ("usage_mb", 512i64.into()),
-                ("threshold_mb", 400i64.into())
-            ]
-        ).await;
+            vec![("usage_mb", 512i64.into()), ("threshold_mb", 400i64.into())],
+        )
+        .await;
         assert!(result.is_ok(), "Global warnm function should work");
 
         let result = errorm(
@@ -279,9 +285,10 @@ mod tests {
             vec![
                 ("host", "localhost".into()),
                 ("port", 5432i64.into()),
-                ("error_code", "CONN001".into())
-            ]
-        ).await;
+                ("error_code", "CONN001".into()),
+            ],
+        )
+        .await;
         assert!(result.is_ok(), "Global errorm function should work");
 
         Ok(())
