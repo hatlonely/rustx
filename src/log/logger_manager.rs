@@ -1,5 +1,5 @@
-use crate::log::Logger;
 use crate::log::logger::LoggerConfig;
+use crate::log::Logger;
 use anyhow::Result;
 use serde::Deserialize;
 use smart_default::SmartDefault;
@@ -60,9 +60,7 @@ impl LoggerManager {
             LoggerConfig::Reference { instance } => {
                 Self::resolve_logger_config_by_name(instance, &loggers_map)?
             }
-            LoggerConfig::Create(create_config) => {
-                Arc::new(Logger::new(create_config.clone())?)
-            }
+            LoggerConfig::Create(create_config) => Arc::new(Logger::new(create_config.clone())?),
         };
 
         Ok(Self {
@@ -84,7 +82,7 @@ impl LoggerManager {
         }
 
         // 再从全局管理器中查找
-        if let Some(logger) = crate::log::get_logger(instance) {
+        if let Some(logger) = crate::log::get(instance) {
             return Ok(logger);
         }
 
@@ -98,9 +96,14 @@ impl LoggerManager {
     /// 获取指定 key 的 logger
     ///
     /// 如果 key 不存在，返回 None
-    pub fn get_logger(&self, key: &str) -> Option<Arc<Logger>> {
+    pub fn get(&self, key: &str) -> Option<Arc<Logger>> {
         let loggers = self.loggers.read().unwrap();
         loggers.get(key).cloned()
+    }
+
+    /// 获取指定 key 的 logger，如果不存在则返回默认 logger
+    pub fn get_or_default(&self, key: &str) -> Arc<Logger> {
+        self.get(key).unwrap_or_else(|| self.get_default())
     }
 
     /// 获取默认 logger
@@ -116,7 +119,7 @@ impl LoggerManager {
     }
 
     /// 动态添加 logger
-    pub fn add_logger(&self, key: String, logger: Logger) {
+    pub fn add(&self, key: String, logger: Logger) {
         let mut loggers = self.loggers.write().unwrap();
         loggers.insert(key, Arc::new(logger));
     }
@@ -134,7 +137,7 @@ impl LoggerManager {
     }
 
     /// 移除指定 key 的 logger
-    pub fn remove_logger(&self, key: &str) -> Option<Arc<Logger>> {
+    pub fn remove(&self, key: &str) -> Option<Arc<Logger>> {
         let mut loggers = self.loggers.write().unwrap();
         loggers.remove(key)
     }
@@ -147,7 +150,8 @@ mod tests {
 
     /// 辅助函数：创建测试用的 LoggerCreateConfig
     fn create_test_logger_config(level: &str) -> crate::log::LoggerCreateConfig {
-        let config_json = format!(r#"{{
+        let config_json = format!(
+            r#"{{
             level: "{}",
             formatter: {{
                 type: "TextFormatter",
@@ -157,7 +161,9 @@ mod tests {
                 type: "ConsoleAppender",
                 options: {{}}
             }}
-        }}"#, level);
+        }}"#,
+            level
+        );
 
         json5::from_str(&config_json).expect("Failed to parse LoggerCreateConfig")
     }
@@ -165,8 +171,14 @@ mod tests {
     #[tokio::test]
     async fn test_manager_new() -> Result<()> {
         let mut loggers = HashMap::new();
-        loggers.insert("main".to_string(), LoggerConfig::Create(create_test_logger_config("info")));
-        loggers.insert("db".to_string(), LoggerConfig::Create(create_test_logger_config("debug")));
+        loggers.insert(
+            "main".to_string(),
+            LoggerConfig::Create(create_test_logger_config("info")),
+        );
+        loggers.insert(
+            "db".to_string(),
+            LoggerConfig::Create(create_test_logger_config("debug")),
+        );
 
         let config = LoggerManagerConfig {
             default: LoggerConfig::Create(create_test_logger_config("warn")),
@@ -187,9 +199,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_manager_get_logger() -> Result<()> {
+    async fn test_manager_get() -> Result<()> {
         let mut loggers = HashMap::new();
-        loggers.insert("main".to_string(), LoggerConfig::Create(create_test_logger_config("info")));
+        loggers.insert(
+            "main".to_string(),
+            LoggerConfig::Create(create_test_logger_config("info")),
+        );
 
         let config = LoggerManagerConfig {
             default: LoggerConfig::Create(create_test_logger_config("debug")),
@@ -199,18 +214,44 @@ mod tests {
         let manager = LoggerManager::new(config)?;
 
         // 测试获取存在的 logger
-        let logger = manager.get_logger("main");
+        let logger = manager.get("main");
         assert!(logger.is_some());
         assert_eq!(logger.unwrap().get_level().await, LogLevel::Info);
 
         // 测试获取不存在的 logger
-        assert!(manager.get_logger("nonexistent").is_none());
+        assert!(manager.get("nonexistent").is_none());
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_manager_add_logger() -> Result<()> {
+    async fn test_manager_get_or_default() -> Result<()> {
+        let mut loggers = HashMap::new();
+        loggers.insert(
+            "main".to_string(),
+            LoggerConfig::Create(create_test_logger_config("info")),
+        );
+
+        let config = LoggerManagerConfig {
+            default: LoggerConfig::Create(create_test_logger_config("debug")),
+            loggers,
+        };
+
+        let manager = LoggerManager::new(config)?;
+
+        // 测试获取存在的 logger
+        let logger = manager.get_or_default("main");
+        assert_eq!(logger.get_level().await, LogLevel::Info);
+
+        // 测试获取不存在的 logger 返回默认
+        let logger = manager.get_or_default("nonexistent");
+        assert_eq!(logger.get_level().await, LogLevel::Debug);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_manager_add() -> Result<()> {
         let config = LoggerManagerConfig {
             default: LoggerConfig::Create(create_test_logger_config("info")),
             loggers: HashMap::new(),
@@ -220,11 +261,11 @@ mod tests {
 
         // 动态添加 logger
         let logger = Logger::new(create_test_logger_config("debug"))?;
-        manager.add_logger("dynamic".to_string(), logger);
+        manager.add("dynamic".to_string(), logger);
 
         // 验证添加成功
         assert!(manager.contains("dynamic"));
-        assert!(manager.get_logger("dynamic").is_some());
+        assert!(manager.get("dynamic").is_some());
 
         Ok(())
     }
@@ -232,9 +273,18 @@ mod tests {
     #[tokio::test]
     async fn test_manager_keys() -> Result<()> {
         let mut loggers = HashMap::new();
-        loggers.insert("a".to_string(), LoggerConfig::Create(create_test_logger_config("info")));
-        loggers.insert("b".to_string(), LoggerConfig::Create(create_test_logger_config("debug")));
-        loggers.insert("c".to_string(), LoggerConfig::Create(create_test_logger_config("warn")));
+        loggers.insert(
+            "a".to_string(),
+            LoggerConfig::Create(create_test_logger_config("info")),
+        );
+        loggers.insert(
+            "b".to_string(),
+            LoggerConfig::Create(create_test_logger_config("debug")),
+        );
+        loggers.insert(
+            "c".to_string(),
+            LoggerConfig::Create(create_test_logger_config("warn")),
+        );
 
         let config = LoggerManagerConfig {
             default: LoggerConfig::Create(create_test_logger_config("info")),
@@ -254,9 +304,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_manager_remove_logger() -> Result<()> {
+    async fn test_manager_remove() -> Result<()> {
         let mut loggers = HashMap::new();
-        loggers.insert("main".to_string(), LoggerConfig::Create(create_test_logger_config("info")));
+        loggers.insert(
+            "main".to_string(),
+            LoggerConfig::Create(create_test_logger_config("info")),
+        );
 
         let config = LoggerManagerConfig {
             default: LoggerConfig::Create(create_test_logger_config("debug")),
@@ -266,12 +319,12 @@ mod tests {
         let manager = LoggerManager::new(config)?;
 
         // 测试移除存在的 logger
-        let removed = manager.remove_logger("main");
+        let removed = manager.remove("main");
         assert!(removed.is_some());
         assert!(!manager.contains("main"));
 
         // 测试移除不存在的 logger
-        assert!(manager.remove_logger("nonexistent").is_none());
+        assert!(manager.remove("nonexistent").is_none());
 
         Ok(())
     }
@@ -281,17 +334,26 @@ mod tests {
         let mut loggers = HashMap::new();
 
         // 创建一个完整的 logger
-        loggers.insert("main".to_string(), LoggerConfig::Create(create_test_logger_config("info")));
+        loggers.insert(
+            "main".to_string(),
+            LoggerConfig::Create(create_test_logger_config("info")),
+        );
 
         // 引用 main logger
-        loggers.insert("api".to_string(), LoggerConfig::Reference {
-            instance: "main".to_string(),
-        });
+        loggers.insert(
+            "api".to_string(),
+            LoggerConfig::Reference {
+                instance: "main".to_string(),
+            },
+        );
 
         // 也引用 main logger
-        loggers.insert("service".to_string(), LoggerConfig::Reference {
-            instance: "main".to_string(),
-        });
+        loggers.insert(
+            "service".to_string(),
+            LoggerConfig::Reference {
+                instance: "main".to_string(),
+            },
+        );
 
         let config = LoggerManagerConfig {
             default: LoggerConfig::Create(create_test_logger_config("debug")),
@@ -306,9 +368,9 @@ mod tests {
         assert!(manager.contains("service"));
 
         // 验证 api 和 service 都指向同一个 logger 实例
-        let main_logger = manager.get_logger("main").unwrap();
-        let api_logger = manager.get_logger("api").unwrap();
-        let service_logger = manager.get_logger("service").unwrap();
+        let main_logger = manager.get("main").unwrap();
+        let api_logger = manager.get("api").unwrap();
+        let service_logger = manager.get("service").unwrap();
 
         // 使用 Arc::ptr_eq 检查是否是同一个实例
         assert!(Arc::ptr_eq(&main_logger, &api_logger));

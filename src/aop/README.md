@@ -4,10 +4,13 @@
 
 ## 快速开始
 
+### 基础使用
+
 ```rust
 use anyhow::Result;
 use rustx::aop::{Aop, AopConfig};
 use serde::Deserialize;
+use std::sync::Arc;
 
 // 用户服务配置
 #[derive(Debug, Clone, Deserialize)]
@@ -18,12 +21,13 @@ struct UserServiceConfig {
 // 用户服务
 pub struct UserService {
     client: DatabaseClient,
-    aop: Option<Aop>,
+    aop: Option<Arc<Aop>>,
 }
 
 impl UserService {
     pub fn new(config: UserServiceConfig) -> Result<Self> {
-        let aop = config.aop.map(Aop::new).transpose()?;
+        // 使用 resolve 方法，支持 Reference 和 Create 两种模式
+        let aop = config.aop.map(|config| Aop::resolve(config)).transpose()?;
         Ok(Self {
             client: DatabaseClient::new(),
             aop,
@@ -70,11 +74,163 @@ service.get_user("123").await?;
 service.get_user_sync("456")?;
 ```
 
+### 使用 AopManager 管理多个 Aop 实例
+
+当需要在多个服务之间共享 Aop 配置时，可以使用 `AopManager`：
+
+```rust
+use rustx::aop::{AopManager, AopManagerConfig};
+
+// 使用 json5::from_str 解析配置
+let manager_config: AopManagerConfig = json5::from_str(r#"
+{
+    default: {
+        // 默认配置为空
+    },
+    aops: {
+        // 创建名为 "api" 的 aop（带重试）
+        "api": {
+            retry: {
+                max_times: 5,
+                strategy: "exponential",
+                min_delay: "100ms",
+                max_delay: "2s"
+            }
+        },
+
+        // 创建名为 "database" 的 aop（带日志和重试）
+        "database": {
+            logging: {
+                logger: {
+                    level: "info",
+                    formatter: { type: "TextFormatter" },
+                    appender: { type: "ConsoleAppender" }
+                },
+                info_sample_rate: 0.1,
+                warn_sample_rate: 1.0
+            },
+            retry: {
+                max_times: 3,
+                strategy: "constant",
+                delay: "200ms"
+            }
+        },
+
+        // 引用 "api" aop（共享同一个实例）
+        "api_ref": {
+            $instance: "api"
+        }
+    }
+}
+"#)?;
+
+let manager = AopManager::new(manager_config)?;
+
+// 使用 aop
+let api_aop = manager.get("api").unwrap();
+let database_aop = manager.get("database").unwrap();
+let api_ref_aop = manager.get("api_ref").unwrap();
+
+// api_ref_aop 和 api_aop 指向同一个实例
+```
+
+### 使用全局 AopManager
+
+全局 AopManager 提供了便捷的访问函数，适合在应用的任何地方使用：
+
+```rust
+use rustx::aop::{init, get, get_or_default, get_default, add, AopManagerConfig};
+
+// 使用 json5::from_str 解析配置并初始化全局 AopManager
+let config: AopManagerConfig = json5::from_str(r#"
+{
+    default: {},
+    aops: {
+        "api": {
+            retry: {
+                max_times: 3,
+                strategy: "constant",
+                delay: "100ms"
+            }
+        }
+    }
+}
+"#)?;
+
+init(config)?;
+
+// 在应用的任何地方使用
+if let Some(api_aop) = get("api") {
+    // 使用 api_aop
+}
+
+// 获取指定 aop，如果不存在则返回默认
+let aop = get_or_default("some_key");
+
+// 获取默认 aop
+let default_aop = get_default();
+
+// 动态添加 aop
+use rustx::aop::{Aop, AopCreateConfig};
+let new_aop_config: AopCreateConfig = json5::from_str(r#"
+    {
+        retry: {
+            max_times: 5,
+            strategy: "exponential",
+            min_delay: "50ms"
+        }
+    }
+"#)?;
+let new_aop = Aop::new(new_aop_config)?;
+add("new_service".to_string(), new_aop);
+```
+
 ## 配置说明
 
 ### AopConfig
 
-AOP 主配置，包含 logging 和 retry 两个可选部分：
+AOP 主配置，支持两种模式：
+
+#### 1. Create 模式 - 创建新的 Aop 实例
+
+```json5
+{
+    aop: {
+        // Logging 配置（可选）
+        logging: {
+            logger: { /* ... */ },
+            info_sample_rate: 1.0,
+            warn_sample_rate: 1.0
+        },
+
+        // Retry 配置（可选）
+        retry: {
+            max_times: 3,
+            strategy: "exponential",
+            min_delay: "100ms",
+            max_delay: "2s",
+            jitter: true
+        }
+    }
+}
+```
+
+#### 2. Reference 模式 - 引用已存在的 Aop 实例
+
+```json5
+{
+    aop: {
+        $instance: "api"  // 引用名为 "api" 的 aop 实例
+    }
+}
+```
+
+**使用场景：**
+- 多个服务共享同一个 Aop 配置
+- 避免重复创建相同配置的 Aop 实例
+- 统一管理和更新 Aop 配置
+
+**完整配置示例：**
 
 ```json5
 {
@@ -192,6 +348,85 @@ AOP 主配置，包含 logging 和 retry 两个可选部分：
 ```
 
 ## 使用建议
+
+### AopConfig 选择
+
+**使用 `Aop::resolve()` 方法：**
+- ✅ 支持 Reference 模式（引用已存在的实例）
+- ✅ 支持 Create 模式（创建新实例）
+- ✅ 自动处理配置类型，无需手动判断
+- ✅ 返回 `Arc<Aop>`，支持多线程共享
+
+```rust
+// 推荐：使用 resolve
+let aop = config.aop.map(|c| Aop::resolve(c)).transpose()?;
+
+// 不推荐：直接使用 new（不支持引用）
+let aop = config.aop.map(|c| Aop::new(c)).transpose()?;
+```
+
+### AopManager 使用场景
+
+**适用场景：**
+1. **多服务共享配置**：多个微服务共享同一个 Aop 实例
+2. **统一管理**：集中管理所有 Aop 配置，方便维护和更新
+3. **引用复用**：通过 Reference 模式避免重复创建相同配置
+4. **动态管理**：支持运行时动态添加、移除 Aop 实例
+
+**示例：微服务架构**
+
+```rust
+use rustx::aop::{init, get, AopManagerConfig};
+
+// 使用 json5::from_str 解析配置并初始化全局 AopManager
+let config: AopManagerConfig = json5::from_str(r#"
+{
+    default: {},
+    aops: {
+        // 创建基础 API 配置
+        "api": {
+            retry: {
+                max_times: 3,
+                strategy: "exponential",
+                min_delay: "100ms"
+            }
+        },
+
+        // 创建数据库配置（带日志）
+        "database": {
+            logging: {
+                logger: {
+                    level: "info",
+                    formatter: { type: "TextFormatter" }
+                },
+                info_sample_rate: 0.1,
+                warn_sample_rate: 1.0
+            },
+            retry: {
+                max_times: 5,
+                strategy: "fibonacci",
+                jitter: true
+            }
+        },
+
+        // 多个服务引用同一个 API 配置
+        "user_service": {
+            $instance: "api"
+        },
+        "order_service": {
+            $instance: "api"
+        }
+    }
+}
+"#)?;
+
+init(config)?;
+
+// 各服务使用对应的 Aop
+let user_aop = get("user_service");
+let order_aop = get("order_service");
+let db_aop = get("database");
+```
 
 ### 生产环境推荐配置
 

@@ -1,7 +1,8 @@
 use anyhow::Result;
 use rustx::aop::{Aop, AopConfig};
-use rustx::log::{init_logger_manager, LoggerManagerConfig};
+use rustx::log::LoggerManagerConfig;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 // 模拟一个外部支付服务客户端
 struct PaymentServiceClient {
@@ -27,10 +28,7 @@ impl PaymentServiceClient {
                 count + 1
             ))
         } else {
-            Ok(format!(
-                "Payment processed: {:.2} {}",
-                amount, currency
-            ))
+            Ok(format!("Payment processed: {:.2} {}", amount, currency))
         }
     }
 
@@ -42,7 +40,10 @@ impl PaymentServiceClient {
         if count < 1 {
             Err(anyhow::anyhow!("Refund service timeout"))
         } else {
-            Ok(format!("Refund completed for transaction: {}", transaction_id))
+            Ok(format!(
+                "Refund completed for transaction: {}",
+                transaction_id
+            ))
         }
     }
 }
@@ -57,12 +58,12 @@ pub struct PaymentServiceConfig {
 // 支付服务
 pub struct PaymentService {
     client: PaymentServiceClient,
-    aop: Option<Aop>,
+    aop: Option<Arc<Aop>>,
 }
 
 impl PaymentService {
     pub fn new(config: PaymentServiceConfig) -> Result<Self> {
-        let aop = config.aop.map(|config| Aop::new(config)).transpose()?;
+        let aop = config.aop.map(|config| Aop::resolve(config)).transpose()?;
         Ok(Self {
             client: PaymentServiceClient::new(),
             aop,
@@ -71,7 +72,10 @@ impl PaymentService {
 
     // 处理支付（带 Logging + Retry）
     pub async fn process_payment(&self, amount: f64, currency: &str) -> Result<String> {
-        rustx::aop!(&self.aop, self.client.process_payment(amount, currency).await)
+        rustx::aop!(
+            &self.aop,
+            self.client.process_payment(amount, currency).await
+        )
     }
 
     // 处理退款（带 Logging + Retry）
@@ -111,11 +115,12 @@ async fn main() -> Result<()> {
     }
     "#;
     let manager_config: LoggerManagerConfig = json5::from_str(logger_config)?;
-    init_logger_manager(manager_config)?;
+    ::rustx::log::init(manager_config)?;
 
     // ===== 场景 1: Logging + Exponential Retry =====
     println!("===== 场景 1: 完整 Logging + Exponential Retry =====");
-    let config1: PaymentServiceConfig = json5::from_str(r#"
+    let config1: PaymentServiceConfig = json5::from_str(
+        r#"
         {
           aop: {
             logging: {
@@ -147,7 +152,8 @@ async fn main() -> Result<()> {
             }
           }
         }
-    "#)?;
+    "#,
+    )?;
     let service1 = PaymentService::new(config1)?;
     match service1.process_payment(99.99, "USD").await {
         Ok(result) => println!("✅ {}\n", result),
@@ -156,7 +162,8 @@ async fn main() -> Result<()> {
 
     // ===== 场景 2: 只记录失败的日志（降低日志量）=====
     println!("===== 场景 2: 只记录失败日志（info_sample_rate=0）=====");
-    let config2: PaymentServiceConfig = json5::from_str(r#"
+    let config2: PaymentServiceConfig = json5::from_str(
+        r#"
         {
           aop: {
             logging: {
@@ -186,7 +193,8 @@ async fn main() -> Result<()> {
             }
           }
         }
-    "#)?;
+    "#,
+    )?;
     let service2 = PaymentService::new(config2)?;
     match service2.refund_payment("TXN-12345").await {
         Ok(result) => println!("✅ {}\n", result),
@@ -195,7 +203,8 @@ async fn main() -> Result<()> {
 
     // ===== 场景 3: 高采样率 + Fibonacci Retry（生产环境推荐）=====
     println!("===== 场景 3: 生产环境配置（低采样率 + Fibonacci + Jitter）=====");
-    let config3: PaymentServiceConfig = json5::from_str(r#"
+    let config3: PaymentServiceConfig = json5::from_str(
+        r#"
         {
           aop: {
             logging: {
@@ -227,7 +236,8 @@ async fn main() -> Result<()> {
             }
           }
         }
-    "#)?;
+    "#,
+    )?;
     let service3 = PaymentService::new(config3)?;
     match service3.process_payment(199.99, "EUR").await {
         Ok(result) => println!("✅ {}\n", result),
@@ -236,7 +246,8 @@ async fn main() -> Result<()> {
 
     // ===== 场景 4: 只启用 Retry（不记录日志）=====
     println!("===== 场景 4: 只启用 Retry（无 Logging）=====");
-    let config4: PaymentServiceConfig = json5::from_str(r#"
+    let config4: PaymentServiceConfig = json5::from_str(
+        r#"
         {
           aop: {
             retry: {
@@ -246,7 +257,8 @@ async fn main() -> Result<()> {
             }
           }
         }
-    "#)?;
+    "#,
+    )?;
     let service4 = PaymentService::new(config4)?;
     match service4.refund_payment("TXN-67890").await {
         Ok(result) => println!("✅ {} (无日志记录)\n", result),

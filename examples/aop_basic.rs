@@ -1,6 +1,7 @@
 use anyhow::Result;
 use rustx::aop::{Aop, AopConfig};
-use rustx::log::{init_logger_manager, LoggerManagerConfig};
+use rustx::log::LoggerManagerConfig;
+use std::sync::Arc;
 
 // 模拟一个简单的数据库客户端
 struct DatabaseClient {
@@ -16,7 +17,9 @@ impl DatabaseClient {
 
     // 模拟一个可能失败的查询
     async fn query(&self, sql: &str) -> Result<String> {
-        let count = self.fail_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let count = self
+            .fail_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if count < 2 {
             Err(anyhow::anyhow!("Database connection failed"))
         } else {
@@ -40,15 +43,12 @@ pub struct UserServiceConfig {
 // 用户服务
 pub struct UserService {
     client: DatabaseClient,
-    aop: Option<Aop>,
+    aop: Option<Arc<Aop>>,
 }
 
 impl UserService {
     pub fn new(config: UserServiceConfig) -> Result<Self> {
-        let aop = config
-            .aop
-            .map(|config| Aop::new(config))
-            .transpose()?;
+        let aop = config.aop.map(|config| Aop::resolve(config)).transpose()?;
 
         Ok(Self {
             client: DatabaseClient::new(),
@@ -58,7 +58,12 @@ impl UserService {
 
     // 使用 aop! 宏包装异步方法
     pub async fn get_user(&self, user_id: &str) -> Result<String> {
-        rustx::aop!(&self.aop, self.client.query(&format!("SELECT * FROM users WHERE id = {}", user_id)).await)
+        rustx::aop!(
+            &self.aop,
+            self.client
+                .query(&format!("SELECT * FROM users WHERE id = {}", user_id))
+                .await
+        )
     }
 
     // 使用 aop_sync! 宏包装同步方法
@@ -98,11 +103,12 @@ async fn main() -> Result<()> {
     }
     "#;
     let manager_config: LoggerManagerConfig = json5::from_str(logger_config)?;
-    init_logger_manager(manager_config)?;
+    ::rustx::log::init(manager_config)?;
 
     // ===== 场景 1: 只启用 Logging（异步方法）=====
     println!("===== 场景 1: Logging (异步方法) =====");
-    let config1: UserServiceConfig = json5::from_str(r#"
+    let config1: UserServiceConfig = json5::from_str(
+        r#"
         {
           aop: {
             logging: {
@@ -127,7 +133,8 @@ async fn main() -> Result<()> {
             }
           }
         }
-    "#)?;
+    "#,
+    )?;
     let service1 = UserService::new(config1)?;
     // 由于未启用 retry，前几次调用会失败（已记录日志）
     match service1.get_user("123").await {
@@ -137,7 +144,8 @@ async fn main() -> Result<()> {
 
     // ===== 场景 2: 采样率配置（只记录 50% 的日志）=====
     println!("===== 场景 2: 采样率配置 =====");
-    let config2: UserServiceConfig = json5::from_str(r#"
+    let config2: UserServiceConfig = json5::from_str(
+        r#"
         {
           aop: {
             logging: {
@@ -162,19 +170,21 @@ async fn main() -> Result<()> {
             }
           }
         }
-    "#)?;
+    "#,
+    )?;
     let service2 = UserService::new(config2)?;
     for i in 0..3 {
         match service2.get_user(&format!("user_{}", i)).await {
-            Ok(_) => {},
-            Err(_) => {},
+            Ok(_) => {}
+            Err(_) => {}
         }
     }
     println!("注意：由于 info_sample_rate=0.5，部分日志不会被记录\n");
 
     // ===== 场景 3: 同步方法的 Logging =====
     println!("===== 场景 3: Logging (同步方法) =====");
-    let config3: UserServiceConfig = json5::from_str(r#"
+    let config3: UserServiceConfig = json5::from_str(
+        r#"
         {
           aop: {
             logging: {
@@ -197,7 +207,8 @@ async fn main() -> Result<()> {
             }
           }
         }
-    "#)?;
+    "#,
+    )?;
     let service3 = UserService::new(config3)?;
     let result = service3.get_user_sync("456")?;
     println!("Result: {}\n", result);

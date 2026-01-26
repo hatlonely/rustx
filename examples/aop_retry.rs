@@ -21,10 +21,7 @@ impl ApiClient {
         println!("  API 调用尝试 #{}", count + 1);
 
         if count < 3 {
-            Err(anyhow::anyhow!(
-                "API call failed (attempt {})",
-                count + 1
-            ))
+            Err(anyhow::anyhow!("API call failed (attempt {})", count + 1))
         } else {
             Ok(format!("Success response from {}", endpoint))
         }
@@ -41,12 +38,12 @@ pub struct ApiServiceConfig {
 // API 服务
 pub struct ApiService {
     client: ApiClient,
-    aop: Option<Aop>,
+    aop: Option<Arc<Aop>>,
 }
 
 impl ApiService {
     pub fn new(config: ApiServiceConfig) -> Result<Self> {
-        let aop = config.aop.map(|config| Aop::new(config)).transpose()?;
+        let aop = config.aop.map(|config| Aop::resolve(config)).transpose()?;
         Ok(Self {
             client: ApiClient::new(),
             aop,
@@ -69,7 +66,8 @@ impl From<ApiServiceConfig> for ApiService {
 async fn main() -> Result<()> {
     // ===== 场景 1: Constant 策略重试 =====
     println!("===== 场景 1: Constant 策略（固定延迟 200ms）=====");
-    let config1: ApiServiceConfig = json5::from_str(r#"
+    let config1: ApiServiceConfig = json5::from_str(
+        r#"
         {
           aop: {
             retry: {
@@ -79,7 +77,8 @@ async fn main() -> Result<()> {
             }
           }
         }
-    "#)?;
+    "#,
+    )?;
     let service1 = ApiService::new(config1)?;
     match service1.fetch_data("/api/users").await {
         Ok(result) => println!("✅ 成功: {}\n", result),
@@ -88,7 +87,8 @@ async fn main() -> Result<()> {
 
     // ===== 场景 2: Exponential 策略重试 =====
     println!("===== 场景 2: Exponential 策略（指数退避）=====");
-    let config2: ApiServiceConfig = json5::from_str(r#"
+    let config2: ApiServiceConfig = json5::from_str(
+        r#"
         {
           aop: {
             retry: {
@@ -100,7 +100,8 @@ async fn main() -> Result<()> {
             }
           }
         }
-    "#)?;
+    "#,
+    )?;
     let service2 = ApiService::new(config2)?;
     match service2.fetch_data("/api/products").await {
         Ok(result) => println!("✅ 成功: {}\n", result),
@@ -109,7 +110,8 @@ async fn main() -> Result<()> {
 
     // ===== 场景 3: Fibonacci 策略重试 =====
     println!("===== 场景 3: Fibonacci 策略（斐波那契退避）=====");
-    let config3: ApiServiceConfig = json5::from_str(r#"
+    let config3: ApiServiceConfig = json5::from_str(
+        r#"
         {
           aop: {
             retry: {
@@ -120,7 +122,8 @@ async fn main() -> Result<()> {
             }
           }
         }
-    "#)?;
+    "#,
+    )?;
     let service3 = ApiService::new(config3)?;
     match service3.fetch_data("/api/orders").await {
         Ok(result) => println!("✅ 成功: {}\n", result),
@@ -129,7 +132,8 @@ async fn main() -> Result<()> {
 
     // ===== 场景 4: 使用 Jitter（随机抖动）避免惊群效应 =====
     println!("===== 场景 4: Constant + Jitter（随机抖动）=====");
-    let config4: ApiServiceConfig = json5::from_str(r#"
+    let config4: ApiServiceConfig = json5::from_str(
+        r#"
         {
           aop: {
             retry: {
@@ -140,7 +144,8 @@ async fn main() -> Result<()> {
             }
           }
         }
-    "#)?;
+    "#,
+    )?;
     let service4 = ApiService::new(config4)?;
     match service4.fetch_data("/api/items").await {
         Ok(result) => println!("✅ 成功: {}\n", result),
@@ -149,7 +154,8 @@ async fn main() -> Result<()> {
 
     // ===== 场景 5: 超过最大重试次数 =====
     println!("===== 场景 5: 超过最大重试次数（max_times=2）=====");
-    let config5: ApiServiceConfig = json5::from_str(r#"
+    let config5: ApiServiceConfig = json5::from_str(
+        r#"
         {
           aop: {
             retry: {
@@ -159,7 +165,8 @@ async fn main() -> Result<()> {
             }
           }
         }
-    "#)?;
+    "#,
+    )?;
     let service5 = ApiService::new(config5)?;
     match service5.fetch_data("/api/fail").await {
         Ok(result) => println!("✅ 成功: {}\n", result),

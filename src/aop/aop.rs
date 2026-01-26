@@ -2,18 +2,18 @@ use crate::cfg::serde_duration::{serde_as, HumanDur};
 use crate::log::Logger;
 use anyhow::Result;
 use backon::{BackoffBuilder, ConstantBuilder, ExponentialBuilder, FibonacciBuilder};
+use garde::Validate;
+use serde::Deserialize;
+use smart_default::SmartDefault;
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::log::LoggerConfig;
-use garde::Validate;
-use serde::Deserialize;
-use smart_default::SmartDefault;
 
-/// AOP 配置
+/// AOP 创建配置（用于创建新的 AOP 实例）
 #[derive(Debug, Clone, Deserialize, SmartDefault)]
 #[serde(default)]
-pub struct AopConfig {
+pub struct AopCreateConfig {
     /// Logging 配置
     pub logging: Option<LoggingConfig>,
 
@@ -84,6 +84,31 @@ pub struct RetryConfig {
     pub jitter: bool,
 }
 
+/// AOP 配置
+///
+/// 支持两种模式：
+/// - Reference: 引用已存在的 aop 实例（通过 $instance 字段）
+/// - Create: 创建新的 aop 实例
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum AopConfig {
+    /// 引用一个已存在的 aop 实例
+    Reference {
+        /// 引用的 aop 实例名称
+        #[serde(rename = "$instance")]
+        instance: String,
+    },
+
+    /// 创建新的 aop 实例
+    Create(AopCreateConfig),
+}
+
+impl Default for AopConfig {
+    fn default() -> Self {
+        AopConfig::Create(AopCreateConfig::default())
+    }
+}
+
 /// AOP 切面
 pub struct Aop {
     /// Logger（如果启用 logging）
@@ -100,8 +125,8 @@ pub struct Aop {
 }
 
 impl Aop {
-    /// 创建 Aop 实例
-    pub fn new(config: AopConfig) -> Result<Self> {
+    /// 从创建配置创建 Aop
+    pub fn new(config: AopCreateConfig) -> Result<Self> {
         // 解析 logger
         let (logger, info_sample_rate, warn_sample_rate) =
             if let Some(logging_config) = config.logging {
@@ -127,6 +152,26 @@ impl Aop {
             info_sample_rate,
             warn_sample_rate,
         })
+    }
+
+    /// 从配置解析 Aop
+    ///
+    /// 如果配置是 Reference 模式，从全局管理器获取已存在的 aop
+    /// 如果配置是 Create 模式，创建新的 aop
+    pub fn resolve(config: AopConfig) -> Result<Arc<Self>> {
+        match config {
+            AopConfig::Reference { instance } => {
+                // 从全局管理器获取已存在的 aop
+                crate::aop::get(&instance).ok_or_else(|| {
+                    anyhow::anyhow!("Aop instance '{}' not found in global manager", instance)
+                })
+            }
+
+            AopConfig::Create(create_config) => {
+                // 创建新的 aop
+                Ok(Arc::new(Aop::new(create_config)?))
+            }
+        }
     }
 
     /// 构建 backon 的 Backoff 策略
@@ -191,8 +236,8 @@ impl Aop {
     }
 }
 
-impl From<AopConfig> for Aop {
-    fn from(config: AopConfig) -> Self {
+impl From<AopCreateConfig> for Aop {
+    fn from(config: AopCreateConfig) -> Self {
         Aop::new(config).expect("Failed to create Aop")
     }
 }
@@ -319,7 +364,7 @@ mod tests {
 
     #[test]
     fn test_aop_config_deserialize() {
-        let config: AopConfig = serde_json::from_str(
+        let config: AopCreateConfig = serde_json::from_str(
             r#"{
                 "retry": {
                     "max_times": 5,
@@ -339,7 +384,7 @@ mod tests {
 
     #[test]
     fn test_aop_new_without_config() {
-        let config = AopConfig::default();
+        let config = AopCreateConfig::default();
         let aop = Aop::new(config).unwrap();
         assert!(aop.logger.is_none());
         assert!(aop.retry_config.is_none());
@@ -349,7 +394,7 @@ mod tests {
 
     #[test]
     fn test_aop_new_with_retry() {
-        let config: AopConfig = serde_json::from_str(
+        let config: AopCreateConfig = serde_json::from_str(
             r#"{
                 "retry": {
                     "max_times": 3,
@@ -366,20 +411,20 @@ mod tests {
 
     #[test]
     fn test_aop_from_config() {
-        let config = AopConfig::default();
+        let config = AopCreateConfig::default();
         let aop: Aop = config.into();
         assert!(aop.logger.is_none());
     }
 
     #[test]
     fn test_build_backoff_none() {
-        let aop = Aop::new(AopConfig::default()).unwrap();
+        let aop = Aop::new(AopCreateConfig::default()).unwrap();
         assert!(aop.build_backoff().is_none());
     }
 
     #[test]
     fn test_build_backoff_constant() {
-        let config: AopConfig = serde_json::from_str(
+        let config: AopCreateConfig = serde_json::from_str(
             r#"{
                 "retry": {
                     "max_times": 3,
@@ -401,7 +446,7 @@ mod tests {
 
     #[test]
     fn test_build_backoff_exponential() {
-        let config: AopConfig = serde_json::from_str(
+        let config: AopCreateConfig = serde_json::from_str(
             r#"{
                 "retry": {
                     "max_times": 4,
@@ -430,7 +475,7 @@ mod tests {
 
     #[test]
     fn test_build_backoff_fibonacci() {
-        let config: AopConfig = serde_json::from_str(
+        let config: AopCreateConfig = serde_json::from_str(
             r#"{
                 "retry": {
                     "max_times": 5,
@@ -456,7 +501,7 @@ mod tests {
 
     #[test]
     fn test_build_backoff_with_max_delay() {
-        let config: AopConfig = serde_json::from_str(
+        let config: AopCreateConfig = serde_json::from_str(
             r#"{
                 "retry": {
                     "max_times": 10,
@@ -500,7 +545,7 @@ mod tests {
 
     #[test]
     fn test_retry_config_with_jitter() {
-        let config: AopConfig = serde_json::from_str(
+        let config: AopCreateConfig = serde_json::from_str(
             r#"{
                 "retry": {
                     "max_times": 3,

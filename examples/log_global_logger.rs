@@ -2,10 +2,10 @@
 //!
 //! 演示如何通过配置初始化全局 LoggerManager，然后使用全局 logger
 
-use rustx::log::*;
 use anyhow::Result;
+use rustx::log::*;
 // 宏定义在 crate root，需要单独导入
-use rustx::{ginfo, gwarn, info, debug, warn, error};
+use rustx::{debug, error, ginfo, gwarn, info, warn};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -68,7 +68,7 @@ async fn main() -> Result<()> {
 
     // 2. 初始化全局 LoggerManager
     println!("2. 初始化全局 LoggerManager");
-    init_logger_manager(config)?;
+    ::rustx::log::init(config)?;
 
     // 3. 使用全局默认 logger
     println!("\n3. 使用全局默认 logger:");
@@ -81,7 +81,7 @@ async fn main() -> Result<()> {
 
     // 4. 获取并使用命名 logger
     println!("\n4. 获取并使用命名 logger:");
-    let db_logger = get_logger("database").expect("database logger not found");
+    let db_logger = get("database").expect("database logger not found");
     info!(db_logger, "database connected");
     info!(
         db_logger,
@@ -90,7 +90,7 @@ async fn main() -> Result<()> {
         "rows" => 100
     );
 
-    let api_logger = get_logger("api").expect("api logger not found");
+    let api_logger = get("api").expect("api logger not found");
     info!(api_logger, "API request received", "path" => "/api/users");
     warn!(
         api_logger,
@@ -147,9 +147,9 @@ async fn main() -> Result<()> {
     )?;
 
     let audit_logger = Logger::new(audit_config)?;
-    add_logger("audit".to_string(), audit_logger);
+    add("audit".to_string(), audit_logger);
 
-    let audit = get_logger("audit").expect("audit logger not found");
+    let audit = get("audit").expect("audit logger not found");
     info!(
         audit,
         "user action",

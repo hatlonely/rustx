@@ -97,7 +97,7 @@ impl Logger {
         match config {
             LoggerConfig::Reference { instance } => {
                 // 从全局管理器获取已存在的 logger
-                crate::log::get_logger(&instance).ok_or_else(|| {
+                crate::log::get(&instance).ok_or_else(|| {
                     anyhow::anyhow!("Logger instance '{}' not found in global manager", instance)
                 })
             }

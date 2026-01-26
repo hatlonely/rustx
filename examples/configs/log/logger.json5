@@ -7,54 +7,66 @@
     formatter: {
       type: "TextFormatter",
       options: {
+        // 是否启用彩色输出（默认 false）
+        // true: 使用 ANSI 颜色代码美化输出（适合终端）
+        // false: 纯文本输出（适合日志文件）
         colored: true
       }
     },
     appender: {
       type: "ConsoleAppender",
       options: {
+        // 输出目标："stdout" 或 "stderr"（默认 "stdout"）
         target: "stdout",
+        // 是否自动刷新缓冲区（默认 true）
         auto_flush: true
       }
     }
   },
 
   loggers: {
-    // 完整配置的 logger：生产环境日志
+    // 生产环境 logger：使用 JSON 格式输出到滚动文件
     "production": {
       level: "info",
       formatter: {
         type: "JsonFormatter",
         options: {
-          pretty: false
+          // JsonFormatter 暂无配置选项
         }
       },
       appender: {
         type: "RollingFileAppender",
         options: {
-          base_path: "/var/log/app",
-          file_prefix: "app",
-          file_suffix: "log",
-          policy: {
-            type: "TimePolicy",
-            options: {
-              pattern: "%Y-%m-%d",
-              max_files: 30
-            }
-          }
+          // 日志文件路径
+          file_path: "/var/log/app/app.log",
+
+          // 单个文件最大大小（字节），null 表示不按大小切分
+          max_size: 104857600,
+
+          // 时间切分策略："minutely"（按分钟）、"hourly"（按小时）、"daily"（按天）
+          // null 表示不按时间切分
+          time_policy: "daily",
+
+          // 保留的最大文件数量，null 表示不按数量清理
+          max_files: 30,
+
+          // 最大保留时间（小时），null 表示不按时间清理
+          // 例如：720 表示保留 30 天
+          max_hours: 720,
+
+          // 是否压缩旧日志文件（默认 false）
+          compress: true
         }
       }
     },
 
-    // 完整配置的 logger：调试日志
+    // 调试环境 logger：彩色文本输出到终端
     "debug": {
       level: "trace",
       formatter: {
         type: "TextFormatter",
         options: {
-          colored: true,
-          display_thread: true,
-          display_location: true
+          colored: true
         }
       },
       appender: {
@@ -62,6 +74,48 @@
         options: {
           target: "stdout",
           auto_flush: true
+        }
+      }
+    },
+
+    // 数据库 logger：JSON 格式输出到文件
+    "database": {
+      level: "debug",
+      formatter: {
+        type: "JsonFormatter",
+        options: {}
+      },
+      appender: {
+        type: "FileAppender",
+        options: {
+          // 日志文件路径（必需）
+          // 父目录不存在时会自动创建
+          file_path: "/var/log/app/database.log"
+        }
+      }
+    },
+
+    // API logger：按小时切分的文本格式日志
+    "api": {
+      level: "info",
+      formatter: {
+        type: "TextFormatter",
+        options: {
+          colored: false
+        }
+      },
+      appender: {
+        type: "RollingFileAppender",
+        options: {
+          file_path: "/var/log/app/api.log",
+          // 按小时切分
+          time_policy: "hourly",
+          // 保留 48 小时的日志
+          max_hours: 48,
+          // 最多保留 100 个文件
+          max_files: 100,
+          // 不压缩
+          compress: false
         }
       }
     },
@@ -80,11 +134,6 @@
       "$instance": "production"
     },
 
-    "api": {
-      "$instance": "production"
-    },
-
-    // 开发环境模块使用 debug logger
     "dev_tools": {
       "$instance": "debug"
     },

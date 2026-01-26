@@ -25,7 +25,13 @@
 //! }
 //! ```
 
-mod aop;
-mod macros;
+pub mod aop;
+pub mod aop_manager;
+pub mod global_aop_manager;
+pub mod macros;
 
-pub use aop::{Aop, AopConfig, LoggingConfig, RetryConfig};
+pub use aop::{Aop, AopConfig, AopCreateConfig, LoggingConfig, RetryConfig};
+pub use aop_manager::{AopManager, AopManagerConfig};
+pub use global_aop_manager::{
+    add, contains, get, get_default, get_or_default, init, keys, remove, set_default,
+};

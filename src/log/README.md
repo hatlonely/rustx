@@ -44,7 +44,7 @@ async fn main() -> Result<()> {
         }
     "#)?;
 
-    init_logger_manager(config)?;
+    ::rustx::log::init(config)?;
     Ok(())
 }
 ```
@@ -53,14 +53,16 @@ async fn main() -> Result<()> {
 
 ```rust
 // 获取命名 logger
-let db_logger = get_logger("db").expect("logger not found");
+let db_logger = get("db").expect("logger not found");
 db_logger.info("database connected".to_string()).await?;
 
 // 获取默认 logger
-let logger = get_default_logger();
+let logger = get_default();
 logger.warn("high memory usage".to_string()).await?;
 
 // 使用 info/trace 等宏（自动捕获文件和行号）
+// 注意：宏需要从 crate root 导入
+use rustx::{info, error};
 info!(logger, "user logged in");
 error!(logger, "connection failed", "host" => "localhost", "port" => 5432);
 ```
@@ -70,7 +72,8 @@ error!(logger, "connection failed", "host" => "localhost", "port" => 5432);
 直接使用 `ginfo`/`gtrace` 等宏，无需传递 logger 参数：
 
 ```rust
-// 简单日志
+// 简单日志（宏需要从 crate root 导入）
+use rustx::{ginfo, gwarn, gerror, gdebug};
 ginfo!("application started");
 gwarn!("high memory usage");
 gerror!("database connection failed");
@@ -121,6 +124,25 @@ async fn main() -> anyhow::Result<()> {
 
 Logger 支持两种配置方式：引用全局 logger 或创建全新的 logger。
 
+**Logger 配置类型：**
+
+```rust
+use rustx::log::*;
+use std::sync::Arc;
+
+/// Logger 配置支持两种模式：
+/// 1. Reference: 引用已存在的 logger 实例
+///    { "$instance": "logger_name" }
+/// 2. Create: 创建新的 logger 实例
+///    { level: "info", formatter: {...}, appender: {...} }
+pub enum LoggerConfig {
+    /// 引用一个已存在的 logger 实例（通过 $instance 字段）
+    Reference { instance: String },
+    /// 创建新的 logger 实例
+    Create(LoggerCreateConfig),
+}
+```
+
 **服务配置设计：**
 
 ```rust
@@ -146,6 +168,7 @@ pub struct MyService {
 
 impl MyService {
     pub fn new(config: MyServiceConfig) -> Result<Self> {
+        // 使用 Logger::resolve() 方法解析配置
         let logger = Logger::resolve(config.logger)?;
         Ok(Self {
             name: config.name,

@@ -1,8 +1,8 @@
-use rustx::log::{Logger, LoggerConfig, LoggerManagerConfig, init_logger_manager};
 use anyhow::Result;
-use std::sync::Arc;
+use rustx::log::{Logger, LoggerConfig, LoggerManagerConfig};
 use serde::Deserialize;
 use smart_default::SmartDefault;
+use std::sync::Arc;
 
 /// 服务配置
 #[derive(Debug, Clone, Deserialize, SmartDefault)]
@@ -34,13 +34,15 @@ impl MyService {
 
     /// 使用 logger 记录日志
     pub async fn do_work(&self, message: &str) -> Result<()> {
-        self.logger.infom(
-            &format!("{} working", self.name),
-            vec![
-                ("service", self.name.as_str().into()),
-                ("message", message.into()),
-            ],
-        ).await?;
+        self.logger
+            .infom(
+                &format!("{} working", self.name),
+                vec![
+                    ("service", self.name.as_str().into()),
+                    ("message", message.into()),
+                ],
+            )
+            .await?;
 
         Ok(())
     }
@@ -98,9 +100,7 @@ async fn main() -> Result<()> {
           formatter: {
             type: "TextFormatter",
             options: {
-              colored: true,
-              display_thread: true,
-              display_location: true
+              colored: true
             }
           },
           appender: {
@@ -118,24 +118,27 @@ async fn main() -> Result<()> {
     let manager_config: LoggerManagerConfig = json5::from_str(config_json5)?;
 
     // ===== 初始化全局 Logger Manager =====
-    init_logger_manager(manager_config)?;
+    ::rustx::log::init(manager_config)?;
 
     // ===== 场景 1: 引用全局 'production' logger =====
     println!("===== 场景 1: 引用全局 production logger =====");
-    let service1_config: MyServiceConfig = json5::from_str(r#"
+    let service1_config: MyServiceConfig = json5::from_str(
+        r#"
         {
           name: "UserService",
           logger: {
             "$instance": "production"
           }
         }
-    "#)?;
+    "#,
+    )?;
     let service1 = MyService::new(service1_config)?;
     service1.do_work("Creating user").await?;
 
     // ===== 场景 2: 创建全新的独立 logger =====
     println!("===== 场景 2: 创建全新的独立 debug logger =====");
-    let service2_config: MyServiceConfig = json5::from_str(r#"
+    let service2_config: MyServiceConfig = json5::from_str(
+        r#"
         {
           name: "PaymentService",
           logger: {
@@ -143,8 +146,7 @@ async fn main() -> Result<()> {
             formatter: {
               type: "TextFormatter",
               options: {
-                colored: true,
-                display_location: true
+                colored: true
               }
             },
             appender: {
@@ -155,7 +157,8 @@ async fn main() -> Result<()> {
             }
           }
         }
-    "#)?;
+    "#,
+    )?;
     let service2 = MyService::new(service2_config)?;
     service2.do_work("Processing payment").await?;
 
