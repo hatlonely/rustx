@@ -1,4 +1,4 @@
-use crate::aop::{Aop, AopConfig};
+use crate::aop::{Aop, AopConfig, TracerConfig as AopTracerConfig};
 use crate::cfg::ConfigReloader;
 use anyhow::Result;
 use serde::Deserialize;
@@ -17,6 +17,9 @@ pub struct AopManagerConfig {
 
     /// 命名 aop 配置映射
     pub aops: HashMap<String, AopConfig>,
+
+    /// 全局 Tracer 配置
+    pub tracer: Option<AopTracerConfig>,
 }
 
 /// AOP 管理器
@@ -31,6 +34,11 @@ pub struct AopManager {
 impl AopManager {
     /// 从配置创建 AopManager
     pub fn new(config: AopManagerConfig) -> Result<Self> {
+        // 如果配置了 tracer，创建并设置全局 tracer provider
+        if let Some(ref tracer_config) = config.tracer {
+            crate::aop::init_tracer(tracer_config)?;
+        }
+
         let mut aops_map = HashMap::new();
 
         // 第一步：创建所有 Create 模式的 aop
@@ -276,6 +284,7 @@ mod tests {
         let config = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
+            tracer: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -299,6 +308,7 @@ mod tests {
         let config = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
+            tracer: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -321,6 +331,7 @@ mod tests {
         let config = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
+            tracer: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -341,6 +352,7 @@ mod tests {
         let config = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops: HashMap::new(),
+            tracer: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -366,6 +378,7 @@ mod tests {
         let config = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
+            tracer: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -388,6 +401,7 @@ mod tests {
         let config = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
+            tracer: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -429,6 +443,7 @@ mod tests {
         let config = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
+            tracer: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -461,6 +476,7 @@ mod tests {
         let config1 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops: aops.clone(),
+            tracer: None,
         };
 
         let mut manager = AopManager::new(config1)?;
@@ -474,6 +490,7 @@ mod tests {
         let config2 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
+            tracer: None,
         };
 
         manager.reload_config(config2)?;
@@ -500,6 +517,7 @@ mod tests {
         let config1 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
+            tracer: None,
         };
 
         let mut manager = AopManager::new(config1)?;
@@ -526,6 +544,7 @@ mod tests {
         let config2 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops: new_aops,
+            tracer: None,
         };
 
         manager.reload_config(config2)?;
@@ -554,6 +573,7 @@ mod tests {
         let config1 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
+            tracer: None,
         };
 
         let mut manager = AopManager::new(config1)?;
@@ -569,6 +589,7 @@ mod tests {
         let config2 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops: new_aops,
+            tracer: None,
         };
 
         manager.reload_config(config2)?;
@@ -606,6 +627,7 @@ mod tests {
         let config1 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
+            tracer: None,
         };
 
         let mut manager = AopManager::new(config1)?;
@@ -638,6 +660,7 @@ mod tests {
         let config2 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops: new_aops,
+            tracer: None,
         };
 
         manager.reload_config(config2)?;

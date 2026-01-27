@@ -118,106 +118,108 @@ macro_rules! __aop_execute {
     ($aop:expr, $op_name:expr, ($($args:expr),*), $expr:expr) => {{
         use std::sync::atomic::{AtomicUsize, Ordering};
         use std::time::Instant;
+        use tracing::Instrument;
 
         // 只在需要时创建 start_time
-        let (start_time, need_log) = if let Some(ref aop) = $aop {
-            (aop.logger.is_some().then(Instant::now), aop.logger.is_some())
-        } else {
-            (None, false)
+        let start_time = $aop.as_ref()
+            .and_then(|aop| aop.logger.as_ref())
+            .map(|_| Instant::now());
+
+        // 获取 tracing 配置
+        let tracing_config = $aop.as_ref().and_then(|aop| aop.tracing_config.as_ref());
+        let tracing_name = tracing_config.map(|cfg| cfg.name.clone());
+        let with_args = tracing_config.map(|cfg| cfg.with_args).unwrap_or(false);
+
+        // 定义执行闭包，每次执行创建 span
+        let execute = || {
+            // clone tracing_name 以支持多次调用（重试）
+            let tracing_name = tracing_name.clone();
+            async move {
+                // 每次执行（包括重试）创建 span
+                let span = tracing_name.as_ref().map(|name| {
+                    tracing::info_span!(
+                        "aop",
+                        name = %name,
+                        operation = %$op_name,
+                        args = tracing::field::Empty,
+                        result = tracing::field::Empty,
+                        error = tracing::field::Empty,
+                    )
+                }).unwrap_or_else(tracing::Span::none);
+
+                // 如果配置了 with_args，记录 args
+                if with_args {
+                    let args_debug = format!("{:?}", ($($args,)*));
+                    span.record("args", args_debug);
+                }
+
+                async {
+                    let result = $expr;
+                    // 记录本次执行的结果
+                    match &result {
+                        Ok(v) => tracing::Span::current().record("result", format!("{:?}", v)),
+                        Err(e) => tracing::Span::current().record("error", format!("{:?}", e)),
+                    };
+                    result
+                }.instrument(span).await
+            }
         };
 
-        // 执行操作（带 retry）
-        let (result, retry_count) = if let Some(ref aop) = $aop {
-            if let Some(backoff) = aop.build_backoff() {
-                // 使用 backon 的 Retryable trait
-                use backon::Retryable;
+        // 执行操作（带 retry 和 tracing）
+        let (result, retry_count) = 'exec: {
+            let Some(ref aop) = $aop else { break 'exec (execute().await, None) };
+            let Some(backoff) = aop.build_backoff() else { break 'exec (execute().await, None) };
 
-                let retry_count = AtomicUsize::new(0);
-                let logger = aop.logger.clone();
+            use backon::Retryable;
+            let retry_count = AtomicUsize::new(0);
+            let result = execute.retry(backoff)
+                .notify(|_err, _dur| {
+                    retry_count.fetch_add(1, Ordering::SeqCst);
+                })
+                .await;
+            (result, Some(retry_count.load(Ordering::SeqCst) as i64))
+        };
 
-                let result = (|| async { $expr }).retry(backoff)
-                .notify(|err, dur: std::time::Duration| {
-                    let current_retry = retry_count.fetch_add(1, Ordering::SeqCst) + 1;
+        // 记录结果日志
+        'log: {
+            let Some(ref aop) = $aop else { break 'log };
+            let Some(ref logger) = aop.logger else { break 'log };
 
-                    if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                        use $crate::log::LogLevel;
-                        let record = $crate::log::LogRecord::new(
-                            LogLevel::Warn,
-                            format!("[AOP] {} retry {}", $op_name, current_retry)
-                        )
+            let args_debug = format!("{:?}", ($($args,)*));
+            let duration = start_time.unwrap().elapsed();
+
+            use $crate::log::LogLevel;
+
+            match &result {
+                Ok(v) if ::rand::random::<f32>() < aop.info_sample_rate => {
+                    let mut record = $crate::log::LogRecord::new(LogLevel::Info, format!("[AOP] {} completed", $op_name))
                         .with_location(file!().to_string(), line!())
                         .with_module(module_path!().to_string())
                         .with_metadata("operation", $op_name)
-                        .with_metadata("retry_count", current_retry as i64)
-                        .with_metadata("error", format!("{:?}", err))
-                        .with_metadata("retry_delay_ms", dur.as_millis() as i64);
-                        if let Some(ref lg) = logger {
-                            let lg = lg.clone();
-                            handle.spawn(async move {
-                                let _ = lg.log(record).await;
-                            });
-                        }
+                        .with_metadata("args", args_debug)
+                        .with_metadata("result", format!("{:?}", v))
+                        .with_metadata("status", "success")
+                        .with_metadata("duration_ms", duration.as_millis() as i64);
+                    if let Some(count) = retry_count {
+                        record = record.with_metadata("retry_count", count);
                     }
-                })
-                .await;
-
-                (result, Some(retry_count.load(Ordering::SeqCst) as i64))
-            } else {
-                ($expr, None)
-            }
-        } else {
-            ($expr, None)
-        };
-
-        // 记录结果日志（根据采样率）
-        if need_log {
-            if let Some(ref aop) = $aop {
-                if let Some(ref logger) = aop.logger {
-                    // 格式化参数（用于日志）
-                    let args_debug = format!("{:?}", ($($args,)*));
-
-                    // 计算耗时
-                    let duration = start_time.unwrap().elapsed();
-
-                    use $crate::log::LogLevel;
-
-                    match &result {
-                        Ok(v) => {
-                            if ::rand::random::<f32>() < aop.info_sample_rate {
-                                let mut record = $crate::log::LogRecord::new(LogLevel::Info, format!("[AOP] {} completed", $op_name))
-                                    .with_location(file!().to_string(), line!())
-                                    .with_module(module_path!().to_string())
-                                    .with_metadata("operation", $op_name)
-                                    .with_metadata("args", args_debug)
-                                    .with_metadata("result", format!("{:?}", v))
-                                    .with_metadata("status", "success")
-                                    .with_metadata("duration_ms", duration.as_millis() as i64);
-                                // 如果有重试，添加重试次数到日志
-                                if let Some(count) = retry_count {
-                                    record = record.with_metadata("retry_count", count);
-                                }
-                                let _ = logger.log(record).await;
-                            }
-                        }
-                        Err(e) => {
-                            if ::rand::random::<f32>() < aop.warn_sample_rate {
-                                let mut record = $crate::log::LogRecord::new(LogLevel::Warn, format!("[AOP] {} failed", $op_name))
-                                    .with_location(file!().to_string(), line!())
-                                    .with_module(module_path!().to_string())
-                                    .with_metadata("operation", $op_name)
-                                    .with_metadata("args", args_debug)
-                                    .with_metadata("error", format!("{:?}", e))
-                                    .with_metadata("status", "error")
-                                    .with_metadata("duration_ms", duration.as_millis() as i64);
-                                // 如果有重试，添加重试次数到日志
-                                if let Some(count) = retry_count {
-                                    record = record.with_metadata("retry_count", count);
-                                }
-                                let _ = logger.log(record).await;
-                            }
-                        }
-                    }
+                    let _ = logger.log(record).await;
                 }
+                Err(e) if ::rand::random::<f32>() < aop.warn_sample_rate => {
+                    let mut record = $crate::log::LogRecord::new(LogLevel::Warn, format!("[AOP] {} failed", $op_name))
+                        .with_location(file!().to_string(), line!())
+                        .with_module(module_path!().to_string())
+                        .with_metadata("operation", $op_name)
+                        .with_metadata("args", args_debug)
+                        .with_metadata("error", format!("{:?}", e))
+                        .with_metadata("status", "error")
+                        .with_metadata("duration_ms", duration.as_millis() as i64);
+                    if let Some(count) = retry_count {
+                        record = record.with_metadata("retry_count", count);
+                    }
+                    let _ = logger.log(record).await;
+                }
+                _ => {}
             }
         }
 
@@ -232,115 +234,109 @@ macro_rules! __aop_execute_with_clone {
     ($aop:expr, [$($clone_args:ident),+], $op_name:expr, ($($args:expr),*), $expr:expr) => {{
         use std::sync::atomic::{AtomicUsize, Ordering};
         use std::time::Instant;
+        use tracing::Instrument;
 
         // 只在需要时创建 start_time
-        let (start_time, need_log) = if let Some(ref aop) = $aop {
-            (aop.logger.is_some().then(Instant::now), aop.logger.is_some())
-        } else {
-            (None, false)
-        };
+        let start_time = $aop.as_ref()
+            .and_then(|aop| aop.logger.as_ref())
+            .map(|_| Instant::now());
 
-        // 定义执行闭包，在内部 clone 参数
+        // 获取 tracing 配置
+        let tracing_config = $aop.as_ref().and_then(|aop| aop.tracing_config.as_ref());
+        let tracing_name = tracing_config.map(|cfg| cfg.name.clone());
+        let with_args = tracing_config.map(|cfg| cfg.with_args).unwrap_or(false);
+
+        // 定义执行闭包，在内部 clone 参数，每次执行创建 span
         let execute = || {
+            // clone tracing_name 以支持多次调用（重试）
+            let tracing_name = tracing_name.clone();
             $(let $clone_args = $clone_args.clone();)+
-            async move { $expr }
+            async move {
+                // 每次执行（包括重试）创建 span
+                let span = tracing_name.as_ref().map(|name| {
+                    tracing::info_span!(
+                        "aop",
+                        name = %name,
+                        operation = %$op_name,
+                        args = tracing::field::Empty,
+                        result = tracing::field::Empty,
+                        error = tracing::field::Empty,
+                    )
+                }).unwrap_or_else(tracing::Span::none);
+
+                // 如果配置了 with_args，记录 args
+                if with_args {
+                    let args_debug = format!("{:?}", ($(&$clone_args,)*));
+                    span.record("args", args_debug);
+                }
+
+                async {
+                    let result = $expr;
+                    // 记录本次执行的结果
+                    match &result {
+                        Ok(v) => tracing::Span::current().record("result", format!("{:?}", v)),
+                        Err(e) => tracing::Span::current().record("error", format!("{:?}", e)),
+                    };
+                    result
+                }.instrument(span).await
+            }
         };
 
-        // 执行操作（带 retry，参数会被 clone）
-        let (result, retry_count) = if let Some(ref aop) = $aop {
-            if let Some(backoff) = aop.build_backoff() {
-                // 使用 backon 的 Retryable trait
-                use backon::Retryable;
+        // 执行操作（带 retry、tracing，参数会被 clone）
+        let (result, retry_count) = 'exec: {
+            let Some(ref aop) = $aop else { break 'exec (execute().await, None) };
+            let Some(backoff) = aop.build_backoff() else { break 'exec (execute().await, None) };
 
-                let retry_count = AtomicUsize::new(0);
-                let logger = aop.logger.clone();
+            use backon::Retryable;
+            let retry_count = AtomicUsize::new(0);
+            let result = execute.retry(backoff)
+                .notify(|_err, _dur| {
+                    retry_count.fetch_add(1, Ordering::SeqCst);
+                })
+                .await;
+            (result, Some(retry_count.load(Ordering::SeqCst) as i64))
+        };
 
-                // 在闭包内 clone 指定的参数，使闭包可以多次调用
-                let result = execute.retry(backoff)
-                .notify(|err, dur: std::time::Duration| {
-                    let current_retry = retry_count.fetch_add(1, Ordering::SeqCst) + 1;
+        // 记录结果日志
+        'log: {
+            let Some(ref aop) = $aop else { break 'log };
+            let Some(ref logger) = aop.logger else { break 'log };
 
-                    if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                        use $crate::log::LogLevel;
-                        let record = $crate::log::LogRecord::new(
-                            LogLevel::Warn,
-                            format!("[AOP] {} retry {}", $op_name, current_retry)
-                        )
+            let args_debug = format!("{:?}", ($($args,)*));
+            let duration = start_time.unwrap().elapsed();
+
+            use $crate::log::LogLevel;
+
+            match &result {
+                Ok(v) if ::rand::random::<f32>() < aop.info_sample_rate => {
+                    let mut record = $crate::log::LogRecord::new(LogLevel::Info, format!("[AOP] {} completed", $op_name))
                         .with_location(file!().to_string(), line!())
                         .with_module(module_path!().to_string())
                         .with_metadata("operation", $op_name)
-                        .with_metadata("retry_count", current_retry as i64)
-                        .with_metadata("error", format!("{:?}", err))
-                        .with_metadata("retry_delay_ms", dur.as_millis() as i64);
-                        if let Some(ref lg) = logger {
-                            let lg = lg.clone();
-                            handle.spawn(async move {
-                                let _ = lg.log(record).await;
-                            });
-                        }
+                        .with_metadata("args", args_debug)
+                        .with_metadata("result", format!("{:?}", v))
+                        .with_metadata("status", "success")
+                        .with_metadata("duration_ms", duration.as_millis() as i64);
+                    if let Some(count) = retry_count {
+                        record = record.with_metadata("retry_count", count);
                     }
-                })
-                .await;
-
-                (result, Some(retry_count.load(Ordering::SeqCst) as i64))
-            } else {
-                // 没有配置 backoff，直接执行
-                (execute().await, None)
-            }
-        } else {
-            // 没有 aop 配置，直接执行
-            (execute().await, None)
-        };
-
-        // 记录结果日志（根据采样率）
-        if need_log {
-            if let Some(ref aop) = $aop {
-                if let Some(ref logger) = aop.logger {
-                    // 格式化参数（用于日志）
-                    let args_debug = format!("{:?}", ($($args,)*));
-
-                    // 计算耗时
-                    let duration = start_time.unwrap().elapsed();
-
-                    use $crate::log::LogLevel;
-
-                    match &result {
-                        Ok(v) => {
-                            if ::rand::random::<f32>() < aop.info_sample_rate {
-                                let mut record = $crate::log::LogRecord::new(LogLevel::Info, format!("[AOP] {} completed", $op_name))
-                                    .with_location(file!().to_string(), line!())
-                                    .with_module(module_path!().to_string())
-                                    .with_metadata("operation", $op_name)
-                                    .with_metadata("args", args_debug)
-                                    .with_metadata("result", format!("{:?}", v))
-                                    .with_metadata("status", "success")
-                                    .with_metadata("duration_ms", duration.as_millis() as i64);
-                                // 如果有重试，添加重试次数到日志
-                                if let Some(count) = retry_count {
-                                    record = record.with_metadata("retry_count", count);
-                                }
-                                let _ = logger.log(record).await;
-                            }
-                        }
-                        Err(e) => {
-                            if ::rand::random::<f32>() < aop.warn_sample_rate {
-                                let mut record = $crate::log::LogRecord::new(LogLevel::Warn, format!("[AOP] {} failed", $op_name))
-                                    .with_location(file!().to_string(), line!())
-                                    .with_module(module_path!().to_string())
-                                    .with_metadata("operation", $op_name)
-                                    .with_metadata("args", args_debug)
-                                    .with_metadata("error", format!("{:?}", e))
-                                    .with_metadata("status", "error")
-                                    .with_metadata("duration_ms", duration.as_millis() as i64);
-                                // 如果有重试，添加重试次数到日志
-                                if let Some(count) = retry_count {
-                                    record = record.with_metadata("retry_count", count);
-                                }
-                                let _ = logger.log(record).await;
-                            }
-                        }
-                    }
+                    let _ = logger.log(record).await;
                 }
+                Err(e) if ::rand::random::<f32>() < aop.warn_sample_rate => {
+                    let mut record = $crate::log::LogRecord::new(LogLevel::Warn, format!("[AOP] {} failed", $op_name))
+                        .with_location(file!().to_string(), line!())
+                        .with_module(module_path!().to_string())
+                        .with_metadata("operation", $op_name)
+                        .with_metadata("args", args_debug)
+                        .with_metadata("error", format!("{:?}", e))
+                        .with_metadata("status", "error")
+                        .with_metadata("duration_ms", duration.as_millis() as i64);
+                    if let Some(count) = retry_count {
+                        record = record.with_metadata("retry_count", count);
+                    }
+                    let _ = logger.log(record).await;
+                }
+                _ => {}
             }
         }
 
@@ -387,67 +383,115 @@ macro_rules! __aop_sync_extract_path {
 #[macro_export]
 macro_rules! __aop_sync_execute {
     ($aop:expr, $op_name:expr, ($($args:expr),*), $expr:expr) => {{
+        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::time::Instant;
 
         // 只在需要时创建 start_time
-        let (start_time, need_log) = if let Some(ref aop) = $aop {
-            (aop.logger.is_some().then(Instant::now), aop.logger.is_some())
-        } else {
-            (None, false)
+        let start_time = $aop.as_ref()
+            .and_then(|aop| aop.logger.as_ref())
+            .map(|_| Instant::now());
+
+        // 获取 tracing 配置
+        let tracing_config = $aop.as_ref().and_then(|aop| aop.tracing_config.as_ref());
+        let tracing_name = tracing_config.map(|cfg| cfg.name.clone());
+        let with_args = tracing_config.map(|cfg| cfg.with_args).unwrap_or(false);
+
+        // 定义执行闘包，每次执行创建 span
+        let execute = || {
+            // clone tracing_name 以支持多次调用（重试）
+            let tracing_name = tracing_name.clone();
+
+            // 每次执行（包括重试）创建 span
+            let span = tracing_name.as_ref().map(|name| {
+                tracing::info_span!(
+                    "aop",
+                    name = %name,
+                    operation = %$op_name,
+                    args = tracing::field::Empty,
+                    result = tracing::field::Empty,
+                    error = tracing::field::Empty,
+                )
+            }).unwrap_or_else(tracing::Span::none);
+
+            // 如果配置了 with_args，记录 args
+            if with_args {
+                let args_debug = format!("{:?}", ($($args,)*));
+                span.record("args", args_debug);
+            }
+
+            let _guard = span.enter();
+
+            let result = $expr;
+            // 记录本次执行的结果
+            match &result {
+                Ok(v) => span.record("result", format!("{:?}", v)),
+                Err(e) => span.record("error", format!("{:?}", e)),
+            };
+            result
         };
 
-        // 执行操作（同步，不支持 retry）
-        let result = $expr;
+        // 执行操作（带 retry）
+        let (result, retry_count) = 'exec: {
+            let Some(ref aop) = $aop else { break 'exec (execute(), None) };
+            let Some(backoff) = aop.build_backoff() else { break 'exec (execute(), None) };
 
-        // 记录结果日志（根据采样率）
-        if need_log {
-            if let Some(ref aop) = $aop {
-                if let Some(ref logger) = aop.logger {
-                    if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                        use $crate::log::LogLevel;
+            use backon::BlockingRetryable;
+            let retry_count = AtomicUsize::new(0);
+            let result = execute.retry(backoff)
+                .notify(|_err, _dur| {
+                    retry_count.fetch_add(1, Ordering::SeqCst);
+                })
+                .call();
+            (result, Some(retry_count.load(Ordering::SeqCst) as i64))
+        };
 
-                        // 格式化参数（用于日志）
-                        let args_debug = format!("{:?}", ($($args,)*));
+        // 记录结果日志
+        'log: {
+            let Some(ref aop) = $aop else { break 'log };
+            let Some(ref logger) = aop.logger else { break 'log };
+            let Ok(handle) = tokio::runtime::Handle::try_current() else { break 'log };
 
-                        // 计算耗时
-                        let duration = start_time.unwrap().elapsed();
+            let args_debug = format!("{:?}", ($($args,)*));
+            let duration = start_time.unwrap().elapsed();
 
-                        match &result {
-                            Ok(v) => {
-                                if ::rand::random::<f32>() < aop.info_sample_rate {
-                                    let record = $crate::log::LogRecord::new(LogLevel::Info, format!("[AOP] {} completed", $op_name))
-                                        .with_location(file!().to_string(), line!())
-                                        .with_module(module_path!().to_string())
-                                        .with_metadata("operation", $op_name)
-                                        .with_metadata("args", args_debug)
-                                        .with_metadata("result", format!("{:?}", v))
-                                        .with_metadata("status", "success")
-                                        .with_metadata("duration_ms", duration.as_millis() as i64);
-                                    let lg = logger.clone();
-                                    handle.spawn(async move {
-                                        let _ = lg.log(record).await;
-                                    });
-                                }
-                            }
-                            Err(e) => {
-                                if ::rand::random::<f32>() < aop.warn_sample_rate {
-                                    let record = $crate::log::LogRecord::new(LogLevel::Warn, format!("[AOP] {} failed", $op_name))
-                                        .with_location(file!().to_string(), line!())
-                                        .with_module(module_path!().to_string())
-                                        .with_metadata("operation", $op_name)
-                                        .with_metadata("args", args_debug)
-                                        .with_metadata("error", format!("{:?}", e))
-                                        .with_metadata("status", "error")
-                                        .with_metadata("duration_ms", duration.as_millis() as i64);
-                                    let lg = logger.clone();
-                                    handle.spawn(async move {
-                                        let _ = lg.log(record).await;
-                                    });
-                                }
-                            }
-                        }
+            use $crate::log::LogLevel;
+
+            match &result {
+                Ok(v) if ::rand::random::<f32>() < aop.info_sample_rate => {
+                    let mut record = $crate::log::LogRecord::new(LogLevel::Info, format!("[AOP] {} completed", $op_name))
+                        .with_location(file!().to_string(), line!())
+                        .with_module(module_path!().to_string())
+                        .with_metadata("operation", $op_name)
+                        .with_metadata("args", args_debug)
+                        .with_metadata("result", format!("{:?}", v))
+                        .with_metadata("status", "success")
+                        .with_metadata("duration_ms", duration.as_millis() as i64);
+                    if let Some(count) = retry_count {
+                        record = record.with_metadata("retry_count", count);
                     }
+                    let lg = logger.clone();
+                    handle.spawn(async move {
+                        let _ = lg.log(record).await;
+                    });
                 }
+                Err(e) if ::rand::random::<f32>() < aop.warn_sample_rate => {
+                    let mut record = $crate::log::LogRecord::new(LogLevel::Warn, format!("[AOP] {} failed", $op_name))
+                        .with_location(file!().to_string(), line!())
+                        .with_module(module_path!().to_string())
+                        .with_metadata("operation", $op_name)
+                        .with_metadata("args", args_debug)
+                        .with_metadata("error", format!("{:?}", e))
+                        .with_metadata("status", "error")
+                        .with_metadata("duration_ms", duration.as_millis() as i64);
+                    if let Some(count) = retry_count {
+                        record = record.with_metadata("retry_count", count);
+                    }
+                    let lg = logger.clone();
+                    handle.spawn(async move {
+                        let _ = lg.log(record).await;
+                    });
+                }
+                _ => {}
             }
         }
 

@@ -29,9 +29,13 @@ pub mod aop;
 pub mod aop_manager;
 pub mod global_aop_manager;
 pub mod macros;
+pub mod tracer;
 
-pub use aop::{Aop, AopConfig, AopCreateConfig, LoggingConfig, RetryConfig};
+pub use aop::{Aop, AopConfig, AopCreateConfig, LoggingConfig, RetryConfig, TracingConfig};
 pub use aop_manager::{AopManager, AopManagerConfig};
 pub use global_aop_manager::{
     add, contains, get, get_default, get_or_default, init, keys, remove, set_default,
+};
+pub use tracer::{
+    init_tracer, BatchProcessorConfig, ExporterConfig, OtlpExporterConfig, TracerConfig,
 };

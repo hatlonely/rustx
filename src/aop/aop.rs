@@ -19,6 +19,9 @@ pub struct AopCreateConfig {
 
     /// Retry 配置
     pub retry: Option<RetryConfig>,
+
+    /// Tracing 配置
+    pub tracing: Option<TracingConfig>,
 }
 
 /// Logging 配置
@@ -38,6 +41,21 @@ pub struct LoggingConfig {
     #[default = 1.0]
     #[garde(range(min = 0.0, max = 1.0))]
     pub warn_sample_rate: f32,
+}
+
+/// Tracing 配置
+#[derive(Debug, Clone, Deserialize, SmartDefault, Validate, PartialEq)]
+#[serde(default)]
+pub struct TracingConfig {
+    /// Span 名称字段
+    #[default = "aop"]
+    #[garde(length(min = 1))]
+    pub name: String,
+
+    /// 是否记录参数
+    #[default = false]
+    #[garde(skip)]
+    pub with_args: bool,
 }
 
 /// Retry 配置
@@ -117,6 +135,9 @@ pub struct Aop {
     /// Retry 配置（如果启用 retry）
     pub retry_config: Option<RetryConfig>,
 
+    /// Tracing 配置（如果启用 tracing）
+    pub tracing_config: Option<TracingConfig>,
+
     /// 成功日志的采样率
     pub info_sample_rate: f32,
 
@@ -146,9 +167,15 @@ impl Aop {
             garde::Validate::validate(retry_config)?;
         }
 
+        // 验证 tracing 配置
+        if let Some(ref tracing_config) = config.tracing {
+            garde::Validate::validate(tracing_config)?;
+        }
+
         Ok(Self {
             logger,
             retry_config: config.retry,
+            tracing_config: config.tracing,
             info_sample_rate,
             warn_sample_rate,
         })
@@ -363,6 +390,78 @@ mod tests {
     }
 
     #[test]
+    fn test_tracing_config_default() {
+        let config = TracingConfig::default();
+        assert_eq!(config.name, "aop");
+        assert!(!config.with_args);
+    }
+
+    #[test]
+    fn test_tracing_config_deserialize() {
+        let config: TracingConfig = serde_json::from_str(
+            r#"{
+                "name": "oss.client",
+                "with_args": true
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(config.name, "oss.client");
+        assert!(config.with_args);
+    }
+
+    #[test]
+    fn test_tracing_config_validation() {
+        // 有效配置
+        let config = TracingConfig {
+            name: "test".to_string(),
+            with_args: true,
+        };
+        assert!(garde::Validate::validate(&config).is_ok());
+
+        // 无效配置：name 为空
+        let config = TracingConfig {
+            name: "".to_string(),
+            with_args: false,
+        };
+        assert!(garde::Validate::validate(&config).is_err());
+    }
+
+    #[test]
+    fn test_aop_config_with_tracing() {
+        let config: AopCreateConfig = serde_json::from_str(
+            r#"{
+                "tracing": {
+                    "name": "my.service",
+                    "with_args": true
+                }
+            }"#,
+        )
+        .unwrap();
+        assert!(config.tracing.is_some());
+        let tracing = config.tracing.unwrap();
+        assert_eq!(tracing.name, "my.service");
+        assert!(tracing.with_args);
+    }
+
+    #[test]
+    fn test_aop_new_with_tracing() {
+        let config: AopCreateConfig = serde_json::from_str(
+            r#"{
+                "tracing": {
+                    "name": "test.aop",
+                    "with_args": false
+                }
+            }"#,
+        )
+        .unwrap();
+        let aop = Aop::new(config).unwrap();
+        assert!(aop.tracing_config.is_some());
+        let tracing_config = aop.tracing_config.unwrap();
+        assert_eq!(tracing_config.name, "test.aop");
+        assert!(!tracing_config.with_args);
+    }
+
+    #[test]
     fn test_aop_config_deserialize() {
         let config: AopCreateConfig = serde_json::from_str(
             r#"{
@@ -532,6 +631,7 @@ mod tests {
                 max_times: 2,
                 ..Default::default()
             }),
+            tracing_config: None,
             info_sample_rate: 1.0,
             warn_sample_rate: 1.0,
         };
