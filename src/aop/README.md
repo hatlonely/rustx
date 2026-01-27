@@ -64,6 +64,17 @@ let config: UserServiceConfig = json5::from_str(r#"
             min_delay: "100ms",      // 最小延迟
             max_delay: "2s",         // 最大延迟
             jitter: true             // 是否添加随机抖动
+        },
+        tracing: {
+            name: "user.service",    // 分布式追踪的 span 名称
+            with_args: false         // 是否记录参数
+        },
+        metric: {
+            prefix: "user_service",  // metric 指标前缀
+            labels: {                // 固定标签
+                service: "user-service",
+                env: "production"
+            }
         }
     }
 }
@@ -286,6 +297,37 @@ AOP 主配置，支持两种模式：
 
             // 是否添加随机抖动（避免多个客户端同时重试造成惊群效应）
             jitter: true
+        },
+
+        // Tracing 配置（可选）
+        tracing: {
+            // Span 名称，默认 "aop"
+            // 建议设置为服务名或模块名，便于在追踪系统中识别
+            name: "database.client",
+
+            // 是否在 span 中记录函数参数（默认 false）
+            // 开启后可在 Jaeger/Zipkin 等追踪系统中查看调用参数
+            // 注意：敏感数据请保持关闭，或在函数级别使用 skip() 排除
+            with_args: false
+        },
+
+        // Metric 配置（可选）
+        metric: {
+            // Metric 名称前缀，默认 "aop"
+            // 生成的指标包括：
+            // - {prefix}_total: 总调用次数
+            // - {prefix}_retry_count: 重试次数
+            // - {prefix}_duration_ms: 调用耗时分布
+            // - {prefix}_in_progress: 当前正在执行的请求数
+            prefix: "database_client",
+
+            // 常量标签，会应用到所有 metric
+            labels: {
+                service: "user-service",
+                env: "production",
+                version: "1.0.0",
+                cluster: "us-west-1"
+            }
         }
     }
 }
@@ -345,6 +387,145 @@ AOP 主配置，支持两种模式：
         jitter: false
     }
 }
+```
+
+### TracingConfig
+
+```json5
+{
+    tracing: {
+        // Span 名称（用于分布式追踪），默认 "aop"
+        // 可设置为服务名或模块名，如 "database.client", "oss.service"
+        name: "aop",
+
+        // 是否在 span 中记录函数参数（默认 false）
+        // 设置为 true 可在追踪系统中查看函数调用参数
+        // 注意：敏感数据请设置为 false 或在函数级别使用 skip() 排除
+        with_args: false
+    }
+}
+```
+
+### MetricConfig
+
+```json5
+{
+    metric: {
+        // Metric 名称前缀（默认 "aop"）
+        // 实际生成的 metric 指标名为：
+        // - {prefix}_total: 总调用次数（按 operation + status 分组）
+        // - {prefix}_retry_count: 重试次数（按 operation 分组）
+        // - {prefix}_duration_ms: 调用耗时分布（按 operation 分组）
+        // - {prefix}_in_progress: 当前正在执行的请求数（按 operation 分组）
+        prefix: "aop",
+
+        // 常量 Labels（会应用到所有 metric）
+        // 支持的固定标签：service, env, version, cluster
+        // 这些标签会自动添加到所有 metric 中，方便在 Prometheus 中查询和聚合
+        labels: {
+            service: "user-service",
+            env: "production",
+            version: "1.0.0",
+            cluster: "us-west-1"
+        }
+    }
+}
+```
+
+### TracerConfig（全局 Tracer 配置）
+
+TracerConfig 用于初始化全局的 OpenTelemetry tracer provider，支持分布式追踪。
+
+```json5
+{
+    enabled: true,                    // 是否启用 tracing（默认 false）
+    service_name: "my-service",       // 服务名称（默认 "rustx-service"）
+    sample_rate: 1.0,                 // 采样率 0.0-1.0（默认 1.0）
+
+    // Exporter 配置
+    exporter: {
+        type: "otlp",                 // 导出器类型: "otlp" | "stdout" | "none"
+        endpoint: "http://localhost:4317",  // OTLP endpoint（默认 "http://localhost:4317"）
+        timeout: "10s",                // 请求超时（默认 10s）
+        headers: {                     // 可选的请求头（用于认证等）
+            "Authorization": "Bearer token123"
+        }
+    },
+
+    // BatchSpanProcessor 配置（可选）
+    batch_processor: {
+        scheduled_delay: "5s",         // 导出间隔（默认 5s）
+        max_queue_size: 2048,          // 最大队列大小（默认 2048）
+        max_export_batch_size: 512,    // 最大导出批次大小（默认 512）
+        max_concurrent_exports: 1      // 最大并发导出数量（默认 1）
+    },
+
+    // tracing_subscriber 配置
+    subscriber: {
+        log_level: "info",             // 日志级别（默认 "info"）
+        with_fmt_layer: false          // 是否输出可读日志到控制台（默认 false）
+    }
+}
+```
+
+**使用示例：**
+
+```rust
+use rustx::aop::tracer::{init_tracer, TracerConfig};
+
+// 使用 json5::from_str 解析配置
+let config: TracerConfig = json5::from_str(r#"
+{
+    enabled: true,
+    service_name: "user-service",
+    sample_rate: 0.1,
+    exporter: {
+        type: "otlp",
+        endpoint: "http://otel-collector:4317",
+        timeout: "30s"
+    },
+    subscriber: {
+        log_level: "info",
+        with_fmt_layer: true
+    }
+}
+"#)?;
+
+// 初始化全局 tracer（只需调用一次）
+init_tracer(&config)?;
+
+// 现在可以在代码中使用 #[tracing::instrument] 宏进行分布式追踪
+```
+
+### MetricServerConfig（全局 Metric Server 配置）
+
+MetricServerConfig 用于启动 Prometheus HTTP Server，提供 metrics 拉取端点。
+
+```json5
+{
+    port: 9090,              // HTTP 服务端口（默认 9090）
+    path: "/metrics"         // Metric 端点路径（默认 "/metrics"）
+}
+```
+
+**使用示例：**
+
+```rust
+use rustx::aop::metric::{init_metric, MetricServerConfig};
+
+// 使用 json5::from_str 解析配置
+let config: MetricServerConfig = json5::from_str(r#"
+{
+    port: 9090,
+    path: "/metrics"
+}
+"#)?;
+
+// 启动 Metric HTTP Server（只需调用一次，在后台运行）
+init_metric(config).await?;
+
+// 现在可以通过 http://localhost:9090/metrics 访问 Prometheus 格式的 metrics
+// 所有 Aop 实例的指标都会自动注册到这个全局 Registry
 ```
 
 ## 使用建议
@@ -441,6 +622,18 @@ let db_aop = get("database");
             max_times: 5,
             strategy: "fibonacci",
             jitter: true  // 避免惊群效应
+        },
+        tracing: {
+            name: "production-service",
+            with_args: false  // 生产环境不建议记录参数，避免敏感数据泄露
+        },
+        metric: {
+            prefix: "prod_service",
+            labels: {
+                service: "user-service",
+                env: "production",
+                version: "1.0.0"
+            }
         }
     }
 }

@@ -9,6 +9,7 @@ use serde::Deserialize;
 use smart_default::SmartDefault;
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::OnceLock;
 use std::time::Duration;
 use tracing::Level;
 use tracing_subscriber::filter::LevelFilter;
@@ -137,11 +138,24 @@ impl SubscriberConfig {
     }
 }
 
+/// 保证 init_tracer 只被调用一次
+static INIT_ONCE: OnceLock<Result<()>> = OnceLock::new();
+
 /// 初始化全局 tracer provider 和 tracing_subscriber
 ///
 /// 根据配置创建 tracer provider 并设置为全局 provider
 /// 同时自动初始化 tracing_subscriber
+/// 多次调用此函数只会初始化一次，后续调用会返回第一次初始化的结果
 pub fn init_tracer(tracer_config: &TracerConfig) -> Result<()> {
+    INIT_ONCE
+        .get_or_init(|| init_tracer_inner(tracer_config))
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{}", e))
+        .copied()
+}
+
+/// 内部初始化函数，实际初始化 tracer provider 和 subscriber
+fn init_tracer_inner(tracer_config: &TracerConfig) -> Result<()> {
     // 如果未启用，直接返回
     if !tracer_config.enabled {
         return Ok(());

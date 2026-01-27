@@ -9,7 +9,7 @@ use prometheus_client::registry::Registry;
 use serde::Deserialize;
 use smart_default::SmartDefault;
 use std::sync::{Arc, RwLock};
-use tokio::spawn;
+use tokio::{spawn, sync::OnceCell};
 
 /// 全局 Prometheus Registry
 ///
@@ -37,10 +37,24 @@ pub struct MetricServerConfig {
     pub path: String,
 }
 
+/// 保证 init_metric 只被调用一次
+static INIT_ONCE: OnceCell<Result<()>> = OnceCell::const_new();
+
 /// 启动 Metric HTTP Server
 ///
 /// 在后台启动一个 Tokio 任务，提供 Prometheus 格式的 metrics 拉取端点
+/// 多次调用此函数只会初始化一次，后续调用会等待第一次初始化完成并返回其结果
 pub async fn init_metric(config: MetricServerConfig) -> Result<()> {
+    INIT_ONCE
+        .get_or_init(|| async { init_metric_inner(config).await })
+        .await
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{}", e))
+        .copied()
+}
+
+/// 内部初始化函数，实际启动 Metric HTTP Server
+async fn init_metric_inner(config: MetricServerConfig) -> Result<()> {
     let registry = Arc::clone(&GLOBAL_REGISTRY);
 
     spawn(async move {
