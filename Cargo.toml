@@ -71,6 +71,9 @@ opentelemetry-otlp = { version = "0.31", features = ["trace", "grpc-tonic"] }
 opentelemetry-stdout = { version = "0.31", features = ["trace"] }
 tonic = { version = "0.14", features = ["transport"] }
 tonic-prost = "0.14"
+tonic-tracing-opentelemetry = "0.32"
+tower = "0.5"
+http = "1.0"
 # Tracing dependencies
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
