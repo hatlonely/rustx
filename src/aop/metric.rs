@@ -3,13 +3,15 @@
 //! 提供全局的 Prometheus Registry 和 HTTP 服务
 
 use anyhow::Result;
+use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Router};
 use garde::Validate;
 use once_cell::sync::Lazy;
+use prometheus_client::encoding::text::encode;
 use prometheus_client::registry::Registry;
 use serde::Deserialize;
 use smart_default::SmartDefault;
 use std::sync::{Arc, RwLock};
-use tokio::{spawn, sync::OnceCell};
+use tokio::{net::TcpListener, sync::OnceCell};
 
 /// 全局 Prometheus Registry
 ///
@@ -53,13 +55,33 @@ pub async fn init_metric(config: MetricServerConfig) -> Result<()> {
         .copied()
 }
 
+/// Metrics 处理器
+async fn metrics_handler(
+    State(registry): State<Arc<RwLock<Registry>>>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let registry_guard = registry
+        .read()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut buffer = String::new();
+    encode(&mut buffer, &*registry_guard)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok((
+        StatusCode::OK,
+        [("content-type", "text/plain; version=0.0.4")],
+        buffer,
+    ))
+}
+
 /// 内部初始化函数，实际启动 Metric HTTP Server
 async fn init_metric_inner(config: MetricServerConfig) -> Result<()> {
     let registry = Arc::clone(&GLOBAL_REGISTRY);
 
-    spawn(async move {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        use tokio::net::TcpListener;
+    tokio::spawn(async move {
+        let app = Router::new()
+            .route(&config.path, get(metrics_handler))
+            .with_state(registry);
 
         let addr = format!("0.0.0.0:{}", config.port);
         let listener = match TcpListener::bind(&addr).await {
@@ -72,79 +94,8 @@ async fn init_metric_inner(config: MetricServerConfig) -> Result<()> {
 
         eprintln!("Metric server listening on http://{}{}", addr, config.path);
 
-        loop {
-            match listener.accept().await {
-                Ok((mut socket, _)) => {
-                    let registry = Arc::clone(&registry);
-                    let path = config.path.clone();
-
-                    spawn(async move {
-                        let mut buf = [0; 1024];
-
-                        // 读取请求
-                        match socket.read(&mut buf).await {
-                            Ok(n) if n > 0 => {
-                                let request = String::from_utf8_lossy(&buf[..n]);
-
-                                // 解析 GET 请求
-                                if request.starts_with("GET ") {
-                                    // 提取路径
-                                    let request_path =
-                                        request.split(' ').nth(1).unwrap_or("/metrics");
-
-                                    // 检查路径是否匹配
-                                    if request_path == path {
-                                        // 返回 metrics
-                                        let mut buffer = String::new();
-                                        let encode_result = {
-                                            let registry_guard = registry.read().unwrap();
-                                            prometheus_client::encoding::text::encode(
-                                                &mut buffer,
-                                                &*registry_guard,
-                                            )
-                                        };
-
-                                        match encode_result {
-                                            Ok(_) => {
-                                                let response = format!(
-                                                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
-                                                    buffer.len(),
-                                                    buffer
-                                                );
-                                                let _ = socket.write_all(response.as_bytes()).await;
-                                            }
-                                            Err(e) => {
-                                                eprintln!("Failed to encode metrics: {}", e);
-                                                let response =
-                                                    "HTTP/1.1 500 Internal Server Error\r\n\r\n"
-                                                        .to_string();
-                                                let _ = socket.write_all(response.as_bytes()).await;
-                                            }
-                                        }
-                                    } else {
-                                        // 404 Not Found
-                                        let response = "HTTP/1.1 404 Not Found\r\n\r\n".to_string();
-                                        let _ = socket.write_all(response.as_bytes()).await;
-                                    }
-                                } else {
-                                    // 400 Bad Request
-                                    let response = "HTTP/1.1 400 Bad Request\r\n\r\n".to_string();
-                                    let _ = socket.write_all(response.as_bytes()).await;
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to read from socket: {}", e);
-                            }
-                            _ => {}
-                        }
-
-                        let _ = socket.shutdown().await;
-                    });
-                }
-                Err(e) => {
-                    eprintln!("Failed to accept connection: {}", e);
-                }
-            }
+        if let Err(e) = axum::serve(listener, app).await {
+            eprintln!("Metric server error: {}", e);
         }
     });
 
