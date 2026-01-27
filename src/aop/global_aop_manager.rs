@@ -144,6 +144,7 @@ mod tests {
             default: crate::aop::AopConfig::Create(create_test_aop_config()),
             aops,
             tracer: None,
+            metric: None,
         };
 
         init(config)?;
@@ -163,6 +164,7 @@ mod tests {
             default: crate::aop::AopConfig::Create(create_test_aop_config()),
             aops: std::collections::HashMap::new(),
             tracer: None,
+            metric: None,
         };
 
         let manager = AopManager::new(config).unwrap();
@@ -211,6 +213,7 @@ mod tests {
                 map
             },
             tracer: None,
+            metric: None,
         };
 
         let manager = AopManager::new(config)?;

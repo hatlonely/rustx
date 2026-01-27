@@ -1,6 +1,12 @@
 //! AOP 全局管理器使用示例
 //!
 //! 演示如何使用 init 初始化全局 AOP 管理器，并使用 aop! 宏为方法添加切面功能
+//!
+//! 功能演示：
+//! - Logging: 日志记录
+//! - Retry: 重试机制
+//! - Tracing: 分布式追踪
+//! - Metric: Prometheus 指标收集
 
 use anyhow::Result;
 use rustx::aop::{init, AopManagerConfig};
@@ -28,6 +34,7 @@ impl UserService {
     /// - 日志记录（开始、结束、耗时、结果）
     /// - 重试机制（如果配置了 retry）
     /// - 分布式追踪（如果配置了 tracing）
+    /// - Prometheus 指标（如果配置了 metric）
     async fn get_user(&self, user_id: &str) -> Result<String> {
         // 使用 aop! 宏包装模拟的数据库查询
         aop!(
@@ -93,7 +100,7 @@ async fn main() -> Result<()> {
 
             // 命名 aop：service_aop
             aops: {
-                // 配置一个带 logging、retry、tracing 的 aop
+                // 配置一个带 logging、retry、tracing、metric 的 aop
                 service_aop: {
                     // Logging 配置
                     logging: {
@@ -121,6 +128,16 @@ async fn main() -> Result<()> {
                     tracing: {
                         name: "user_service",
                         with_args: true
+                    },
+
+                    // Metric 配置
+                    metric: {
+                        enabled: true,
+                        prefix: "example_app",
+                        labels: {
+                            service: "user_service",
+                            env: "development"
+                        }
                     }
                 }
             },
@@ -137,15 +154,23 @@ async fn main() -> Result<()> {
                     log_level: "info",
                     with_fmt_layer: true
                 }
+            },
+
+            // 全局 Metric Server 配置
+            metric: {
+                enabled: true,
+                port: 9090,
+                path: "/metrics"
             }
         }
     "#,
     )?;
 
-    // 初始化全局 AOP 管理器（会自动初始化全局 tracer）
+    // 初始化全局 AOP 管理器（会自动初始化全局 tracer 和 metric server）
     init(aop_config)?;
     println!("✓ 全局 AOP 管理器初始化完成");
-    println!("✓ 全局 Tracer 已启用（stdout exporter）\n");
+    println!("✓ 全局 Tracer 已启用（stdout exporter）");
+    println!("✓ Metric Server 已启动（http://localhost:9090/metrics）\n");
 
     // ===== 步骤 2: 从全局管理器获取 aop 实例 =====
 
@@ -199,6 +224,27 @@ async fn main() -> Result<()> {
     println!("- 抖动：jitter=true，延迟基础上添加随机抖动");
     println!("- 分布式追踪：每个操作都创建了 span（查看下方的 JSON 输出）");
     println!("- fmt layer：可读的日志输出（显示嵌套结构和耗时）");
+    println!("- Prometheus 指标：自动收集以下指标");
+    println!("  - example_app_total{{operation=\"...\",status=\"success|error\",service=\"user_service\"}}");
+    println!("  - example_app_retry_count{{operation=\"...\",service=\"user_service\"}}");
+    println!("  - example_app_duration_ms{{operation=\"...\",service=\"user_service\"}}");
+    println!("  - example_app_in_progress{{operation=\"...\",service=\"user_service\"}}");
+    println!("\n查看指标：");
+    println!("  curl http://localhost:9090/metrics");
+    println!("\n或使用 Prometheus 抓取：");
+    println!("  scrape_configs:");
+    println!("    - job_name: 'aop-example'");
+    println!("      static_configs:");
+    println!("        - targets: ['localhost:9090']");
+    println!("\n程序将持续运行，Metric Server 保持监听...");
+    println!("按 Ctrl+C 退出\n");
+
+    // 阻塞主线程，保持程序运行
+    use tokio::signal::ctrl_c;
+
+    ctrl_c().await?;
+    println!("\n收到 Ctrl+C，正在退出...");
+    println!("✓ 程序正常退出");
 
     Ok(())
 }

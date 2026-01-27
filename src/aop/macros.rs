@@ -130,6 +130,19 @@ macro_rules! __aop_execute {
         let tracing_name = tracing_config.map(|cfg| cfg.name.clone());
         let with_args = tracing_config.map(|cfg| cfg.with_args).unwrap_or(false);
 
+        // Metric: 增加 in_progress
+        'metric_inc: {
+            let Some(ref aop) = $aop else { break 'metric_inc };
+            let Some(ref in_progress) = aop.metric_in_progress else { break 'metric_inc };
+            let Some(ref default_label) = aop.metric_default_operation_label else { break 'metric_inc };
+
+            let labels = $crate::aop::aop::OperationLabel {
+                operation: $op_name.to_string(),
+                ..default_label.clone()
+            };
+            in_progress.get_or_create(&labels).inc();
+        }
+
         // 定义执行闭包，每次执行创建 span
         let execute = || {
             // clone tracing_name 以支持多次调用（重试）
@@ -179,6 +192,51 @@ macro_rules! __aop_execute {
                 .await;
             (result, Some(retry_count.load(Ordering::SeqCst) as i64))
         };
+
+        // Metric: 减少 in_progress 并记录结果指标
+        'metric_record: {
+            let Some(ref aop) = $aop else { break 'metric_record };
+            let Some(ref default_op_label) = aop.metric_default_operation_label else { break 'metric_record };
+            let Some(ref default_metric_labels) = aop.metric_default_metric_labels else { break 'metric_record };
+
+            // 预创建 OperationLabel，复用避免多次 clone
+            let op_label = $crate::aop::aop::OperationLabel {
+                operation: $op_name.to_string(),
+                ..default_op_label.clone()
+            };
+
+            // 减少 in_progress
+            if let Some(ref in_progress) = aop.metric_in_progress {
+                in_progress.get_or_create(&op_label).dec();
+            }
+
+            // 记录 duration
+            if let Some(ref duration_metric) = aop.metric_duration {
+                let duration = start_time.unwrap().elapsed();
+                duration_metric.get_or_create(&op_label).observe(duration.as_millis() as f64);
+            }
+
+            // 记录 retry_count
+            if let Some(count) = retry_count {
+                if let Some(ref retry_count_metric) = aop.metric_retry_count {
+                    retry_count_metric.get_or_create(&op_label).inc_by(count as u64);
+                }
+            }
+
+            // 记录 total
+            if let Some(ref total_metric) = aop.metric_total {
+                let status = match &result {
+                    Ok(_) => "success",
+                    Err(_) => "error",
+                };
+                let labels = $crate::aop::aop::MetricLabels {
+                    operation: $op_name.to_string(),
+                    status: Some(status.to_string()),
+                    ..default_metric_labels.clone()
+                };
+                total_metric.get_or_create(&labels).inc();
+            }
+        }
 
         // 记录结果日志
         'log: {
@@ -246,6 +304,19 @@ macro_rules! __aop_execute_with_clone {
         let tracing_name = tracing_config.map(|cfg| cfg.name.clone());
         let with_args = tracing_config.map(|cfg| cfg.with_args).unwrap_or(false);
 
+        // Metric: 增加 in_progress
+        'metric_inc: {
+            let Some(ref aop) = $aop else { break 'metric_inc };
+            let Some(ref in_progress) = aop.metric_in_progress else { break 'metric_inc };
+            let Some(ref default_label) = aop.metric_default_operation_label else { break 'metric_inc };
+
+            let labels = $crate::aop::aop::OperationLabel {
+                operation: $op_name.to_string(),
+                ..default_label.clone()
+            };
+            in_progress.get_or_create(&labels).inc();
+        }
+
         // 定义执行闭包，在内部 clone 参数，每次执行创建 span
         let execute = || {
             // clone tracing_name 以支持多次调用（重试）
@@ -296,6 +367,51 @@ macro_rules! __aop_execute_with_clone {
                 .await;
             (result, Some(retry_count.load(Ordering::SeqCst) as i64))
         };
+
+        // Metric: 减少 in_progress 并记录结果指标
+        'metric_record: {
+            let Some(ref aop) = $aop else { break 'metric_record };
+            let Some(ref default_op_label) = aop.metric_default_operation_label else { break 'metric_record };
+            let Some(ref default_metric_labels) = aop.metric_default_metric_labels else { break 'metric_record };
+
+            // 预创建 OperationLabel，复用避免多次 clone
+            let op_label = $crate::aop::aop::OperationLabel {
+                operation: $op_name.to_string(),
+                ..default_op_label.clone()
+            };
+
+            // 减少 in_progress
+            if let Some(ref in_progress) = aop.metric_in_progress {
+                in_progress.get_or_create(&op_label).dec();
+            }
+
+            // 记录 duration
+            if let Some(ref duration_metric) = aop.metric_duration {
+                let duration = start_time.unwrap().elapsed();
+                duration_metric.get_or_create(&op_label).observe(duration.as_millis() as f64);
+            }
+
+            // 记录 retry_count
+            if let Some(count) = retry_count {
+                if let Some(ref retry_count_metric) = aop.metric_retry_count {
+                    retry_count_metric.get_or_create(&op_label).inc_by(count as u64);
+                }
+            }
+
+            // 记录 total
+            if let Some(ref total_metric) = aop.metric_total {
+                let status = match &result {
+                    Ok(_) => "success",
+                    Err(_) => "error",
+                };
+                let labels = $crate::aop::aop::MetricLabels {
+                    operation: $op_name.to_string(),
+                    status: Some(status.to_string()),
+                    ..default_metric_labels.clone()
+                };
+                total_metric.get_or_create(&labels).inc();
+            }
+        }
 
         // 记录结果日志
         'log: {
@@ -396,7 +512,20 @@ macro_rules! __aop_sync_execute {
         let tracing_name = tracing_config.map(|cfg| cfg.name.clone());
         let with_args = tracing_config.map(|cfg| cfg.with_args).unwrap_or(false);
 
-        // 定义执行闘包，每次执行创建 span
+        // Metric: 增加 in_progress
+        'metric_inc: {
+            let Some(ref aop) = $aop else { break 'metric_inc };
+            let Some(ref in_progress) = aop.metric_in_progress else { break 'metric_inc };
+            let Some(ref default_label) = aop.metric_default_operation_label else { break 'metric_inc };
+
+            let labels = $crate::aop::aop::OperationLabel {
+                operation: $op_name.to_string(),
+                ..default_label.clone()
+            };
+            in_progress.get_or_create(&labels).inc();
+        }
+
+        // 定义执行闭包，每次执行创建 span
         let execute = || {
             // clone tracing_name 以支持多次调用（重试）
             let tracing_name = tracing_name.clone();
@@ -444,6 +573,51 @@ macro_rules! __aop_sync_execute {
                 .call();
             (result, Some(retry_count.load(Ordering::SeqCst) as i64))
         };
+
+        // Metric: 减少 in_progress 并记录结果指标
+        'metric_record: {
+            let Some(ref aop) = $aop else { break 'metric_record };
+            let Some(ref default_op_label) = aop.metric_default_operation_label else { break 'metric_record };
+            let Some(ref default_metric_labels) = aop.metric_default_metric_labels else { break 'metric_record };
+
+            // 预创建 OperationLabel，复用避免多次 clone
+            let op_label = $crate::aop::aop::OperationLabel {
+                operation: $op_name.to_string(),
+                ..default_op_label.clone()
+            };
+
+            // 减少 in_progress
+            if let Some(ref in_progress) = aop.metric_in_progress {
+                in_progress.get_or_create(&op_label).dec();
+            }
+
+            // 记录 duration
+            if let Some(ref duration_metric) = aop.metric_duration {
+                let duration = start_time.unwrap().elapsed();
+                duration_metric.get_or_create(&op_label).observe(duration.as_millis() as f64);
+            }
+
+            // 记录 retry_count
+            if let Some(count) = retry_count {
+                if let Some(ref retry_count_metric) = aop.metric_retry_count {
+                    retry_count_metric.get_or_create(&op_label).inc_by(count as u64);
+                }
+            }
+
+            // 记录 total
+            if let Some(ref total_metric) = aop.metric_total {
+                let status = match &result {
+                    Ok(_) => "success",
+                    Err(_) => "error",
+                };
+                let labels = $crate::aop::aop::MetricLabels {
+                    operation: $op_name.to_string(),
+                    status: Some(status.to_string()),
+                    ..default_metric_labels.clone()
+                };
+                total_metric.get_or_create(&labels).inc();
+            }
+        }
 
         // 记录结果日志
         'log: {

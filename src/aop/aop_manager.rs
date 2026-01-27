@@ -1,4 +1,4 @@
-use crate::aop::{Aop, AopConfig, TracerConfig as AopTracerConfig};
+use crate::aop::{Aop, AopConfig, MetricServerConfig, TracerConfig as AopTracerConfig};
 use crate::cfg::ConfigReloader;
 use anyhow::Result;
 use serde::Deserialize;
@@ -20,6 +20,9 @@ pub struct AopManagerConfig {
 
     /// 全局 Tracer 配置
     pub tracer: Option<AopTracerConfig>,
+
+    /// 全局 Metric Server 配置（配置此项即启用 metric server）
+    pub metric: Option<MetricServerConfig>,
 }
 
 /// AOP 管理器
@@ -37,6 +40,21 @@ impl AopManager {
         // 如果配置了 tracer，创建并设置全局 tracer provider
         if let Some(ref tracer_config) = config.tracer {
             crate::aop::init_tracer(tracer_config)?;
+        }
+
+        // 如果配置了 metric，启动全局 metric server
+        if let Some(ref metric_config) = config.metric {
+            // 使用 handle spawn 到后台
+            let handle = tokio::runtime::Handle::try_current();
+            if let Ok(handle) = handle {
+                let server_config = metric_config.clone();
+                handle.spawn(async move {
+                    let _ = crate::aop::init_metric(server_config).await;
+                });
+            } else {
+                // 如果没有 tokio runtime，打印警告
+                eprintln!("Warning: No tokio runtime found, metric server not started");
+            }
         }
 
         let mut aops_map = HashMap::new();
@@ -214,9 +232,7 @@ impl ConfigReloader<AopManagerConfig> for AopManager {
             AopConfig::Create(new_create_config) => {
                 // 检查旧 default 配置是否存在且相同
                 let should_reuse = match &old_config.default {
-                    AopConfig::Create(old_create_config) => {
-                        old_create_config == new_create_config
-                    }
+                    AopConfig::Create(old_create_config) => old_create_config == new_create_config,
                     _ => false,
                 };
 
@@ -278,13 +294,20 @@ mod tests {
     #[tokio::test]
     async fn test_manager_new() -> Result<()> {
         let mut aops = HashMap::new();
-        aops.insert("main".to_string(), AopConfig::Create(create_test_aop_config()));
-        aops.insert("db".to_string(), AopConfig::Create(create_test_aop_config()));
+        aops.insert(
+            "main".to_string(),
+            AopConfig::Create(create_test_aop_config()),
+        );
+        aops.insert(
+            "db".to_string(),
+            AopConfig::Create(create_test_aop_config()),
+        );
 
         let config = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
             tracer: None,
+            metric: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -303,12 +326,16 @@ mod tests {
     #[tokio::test]
     async fn test_manager_get() -> Result<()> {
         let mut aops = HashMap::new();
-        aops.insert("main".to_string(), AopConfig::Create(create_test_aop_config()));
+        aops.insert(
+            "main".to_string(),
+            AopConfig::Create(create_test_aop_config()),
+        );
 
         let config = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
             tracer: None,
+            metric: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -326,12 +353,16 @@ mod tests {
     #[tokio::test]
     async fn test_manager_get_or_default() -> Result<()> {
         let mut aops = HashMap::new();
-        aops.insert("main".to_string(), AopConfig::Create(create_test_aop_config()));
+        aops.insert(
+            "main".to_string(),
+            AopConfig::Create(create_test_aop_config()),
+        );
 
         let config = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
             tracer: None,
+            metric: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -353,6 +384,7 @@ mod tests {
             default: AopConfig::Create(create_test_aop_config()),
             aops: HashMap::new(),
             tracer: None,
+            metric: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -379,6 +411,7 @@ mod tests {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
             tracer: None,
+            metric: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -396,12 +429,16 @@ mod tests {
     #[tokio::test]
     async fn test_manager_remove() -> Result<()> {
         let mut aops = HashMap::new();
-        aops.insert("main".to_string(), AopConfig::Create(create_test_aop_config()));
+        aops.insert(
+            "main".to_string(),
+            AopConfig::Create(create_test_aop_config()),
+        );
 
         let config = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
             tracer: None,
+            metric: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -422,7 +459,10 @@ mod tests {
         let mut aops = HashMap::new();
 
         // 创建一个完整的 aop
-        aops.insert("main".to_string(), AopConfig::Create(create_test_aop_config()));
+        aops.insert(
+            "main".to_string(),
+            AopConfig::Create(create_test_aop_config()),
+        );
 
         // 引用 main aop
         aops.insert(
@@ -444,6 +484,7 @@ mod tests {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
             tracer: None,
+            metric: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -470,13 +511,20 @@ mod tests {
     async fn test_config_reloader_keep_unchanged() -> Result<()> {
         // 创建初始配置
         let mut aops = HashMap::new();
-        aops.insert("main".to_string(), AopConfig::Create(create_test_aop_config()));
-        aops.insert("db".to_string(), AopConfig::Create(create_test_aop_config()));
+        aops.insert(
+            "main".to_string(),
+            AopConfig::Create(create_test_aop_config()),
+        );
+        aops.insert(
+            "db".to_string(),
+            AopConfig::Create(create_test_aop_config()),
+        );
 
         let config1 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops: aops.clone(),
             tracer: None,
+            metric: None,
         };
 
         let mut manager = AopManager::new(config1)?;
@@ -491,6 +539,7 @@ mod tests {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
             tracer: None,
+            metric: None,
         };
 
         manager.reload_config(config2)?;
@@ -511,13 +560,20 @@ mod tests {
     async fn test_config_reloader_change_config() -> Result<()> {
         // 创建初始配置
         let mut aops = HashMap::new();
-        aops.insert("main".to_string(), AopConfig::Create(create_test_aop_config()));
-        aops.insert("db".to_string(), AopConfig::Create(create_test_aop_config()));
+        aops.insert(
+            "main".to_string(),
+            AopConfig::Create(create_test_aop_config()),
+        );
+        aops.insert(
+            "db".to_string(),
+            AopConfig::Create(create_test_aop_config()),
+        );
 
         let config1 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
             tracer: None,
+            metric: None,
         };
 
         let mut manager = AopManager::new(config1)?;
@@ -539,12 +595,16 @@ mod tests {
         // 重载配置（修改 main 的配置）
         let mut new_aops = HashMap::new();
         new_aops.insert("main".to_string(), AopConfig::Create(different_config));
-        new_aops.insert("db".to_string(), AopConfig::Create(create_test_aop_config()));
+        new_aops.insert(
+            "db".to_string(),
+            AopConfig::Create(create_test_aop_config()),
+        );
 
         let config2 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops: new_aops,
             tracer: None,
+            metric: None,
         };
 
         manager.reload_config(config2)?;
@@ -567,13 +627,20 @@ mod tests {
     async fn test_config_reloader_add_remove_aop() -> Result<()> {
         // 创建初始配置
         let mut aops = HashMap::new();
-        aops.insert("main".to_string(), AopConfig::Create(create_test_aop_config()));
-        aops.insert("db".to_string(), AopConfig::Create(create_test_aop_config()));
+        aops.insert(
+            "main".to_string(),
+            AopConfig::Create(create_test_aop_config()),
+        );
+        aops.insert(
+            "db".to_string(),
+            AopConfig::Create(create_test_aop_config()),
+        );
 
         let config1 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
             tracer: None,
+            metric: None,
         };
 
         let mut manager = AopManager::new(config1)?;
@@ -583,13 +650,20 @@ mod tests {
 
         // 重载配置（删除 db，添加 api）
         let mut new_aops = HashMap::new();
-        new_aops.insert("main".to_string(), AopConfig::Create(create_test_aop_config()));
-        new_aops.insert("api".to_string(), AopConfig::Create(create_test_aop_config()));
+        new_aops.insert(
+            "main".to_string(),
+            AopConfig::Create(create_test_aop_config()),
+        );
+        new_aops.insert(
+            "api".to_string(),
+            AopConfig::Create(create_test_aop_config()),
+        );
 
         let config2 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops: new_aops,
             tracer: None,
+            metric: None,
         };
 
         manager.reload_config(config2)?;
@@ -616,7 +690,10 @@ mod tests {
     async fn test_config_reloader_with_reference() -> Result<()> {
         // 创建初始配置
         let mut aops = HashMap::new();
-        aops.insert("main".to_string(), AopConfig::Create(create_test_aop_config()));
+        aops.insert(
+            "main".to_string(),
+            AopConfig::Create(create_test_aop_config()),
+        );
         aops.insert(
             "api".to_string(),
             AopConfig::Reference {
@@ -628,6 +705,7 @@ mod tests {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
             tracer: None,
+            metric: None,
         };
 
         let mut manager = AopManager::new(config1)?;
@@ -661,6 +739,7 @@ mod tests {
             default: AopConfig::Create(create_test_aop_config()),
             aops: new_aops,
             tracer: None,
+            metric: None,
         };
 
         manager.reload_config(config2)?;
