@@ -96,8 +96,11 @@ pub trait ObjectStore: Send + Sync {
     ///
     /// - 如果指定了 `range` 选项，只返回指定范围的数据
     /// - 整个对象内容会被加载到内存中，需注意内存使用
-    async fn get_object(&self, key: &str, options: GetObjectOptions)
-        -> Result<Bytes, ObjectStoreError>;
+    async fn get_object(
+        &self,
+        key: &str,
+        options: GetObjectOptions,
+    ) -> Result<Bytes, ObjectStoreError>;
 
     /// 删除存储后端中的对象
     ///
@@ -352,9 +355,7 @@ pub trait ObjectStore: Send + Sync {
         // 创建文件
         let file = tokio::fs::File::create(local_path).await?;
 
-        let stream_options = GetStreamOptions {
-            range: None,
-        };
+        let stream_options = GetStreamOptions { range: None };
 
         self.get_stream(key, Box::new(file), stream_options).await?;
         Ok(())
@@ -422,7 +423,8 @@ pub trait ObjectStore: Send + Sync {
         // 进度跟踪
         let completed_files = Arc::new(AtomicUsize::new(0));
         let transferred_bytes = Arc::new(AtomicU64::new(0));
-        let _failed_files: Arc<tokio::sync::Mutex<Vec<FailedFile>>> = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let _failed_files: Arc<tokio::sync::Mutex<Vec<FailedFile>>> =
+            Arc::new(tokio::sync::Mutex::new(Vec::new()));
 
         // 并发上传
         let results: Vec<(String, Result<u64, String>)> =
