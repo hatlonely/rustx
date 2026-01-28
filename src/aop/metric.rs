@@ -1,9 +1,16 @@
 //! Metric 支持
 //!
 //! 提供全局的 Prometheus Registry 和 HTTP 服务
+//! 同时支持 prometheus-client (aop 模块) 和 tonic_prometheus_layer (gRPC metrics) 的输出
 
 use anyhow::Result;
-use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Router};
+use axum::{
+    extract::State,
+    http::StatusCode,
+    response::IntoResponse,
+    routing::get,
+    Router,
+};
 use garde::Validate;
 use once_cell::sync::Lazy;
 use prometheus_client::encoding::text::encode;
@@ -13,7 +20,7 @@ use smart_default::SmartDefault;
 use std::sync::{Arc, RwLock};
 use tokio::{net::TcpListener, sync::OnceCell};
 
-/// 全局 Prometheus Registry
+/// 全局 Prometheus Registry (prometheus-client)
 ///
 /// 所有 Aop 实例的指标都注册到这个 Registry
 static GLOBAL_REGISTRY: Lazy<Arc<RwLock<Registry>>> =
@@ -37,6 +44,11 @@ pub struct MetricServerConfig {
     #[default = "/metrics"]
     #[garde(length(min = 1))]
     pub path: String,
+
+    /// 是否启用 gRPC metrics (tonic_prometheus_layer)
+    #[default = true]
+    #[garde(skip)]
+    pub with_grpc: bool,
 }
 
 /// 保证 init_metric 只被调用一次
@@ -45,6 +57,7 @@ static INIT_ONCE: OnceCell<Result<()>> = OnceCell::const_new();
 /// 启动 Metric HTTP Server
 ///
 /// 在后台启动一个 Tokio 任务，提供 Prometheus 格式的 metrics 拉取端点
+/// 同时支持 prometheus-client (aop) 和 tonic_prometheus_layer (gRPC) 的 metrics
 /// 多次调用此函数只会初始化一次，后续调用会等待第一次初始化完成并返回其结果
 pub async fn init_metric(config: MetricServerConfig) -> Result<()> {
     INIT_ONCE
@@ -56,16 +69,28 @@ pub async fn init_metric(config: MetricServerConfig) -> Result<()> {
 }
 
 /// Metrics 处理器
-async fn metrics_handler(
-    State(registry): State<Arc<RwLock<Registry>>>,
-) -> Result<impl IntoResponse, StatusCode> {
-    let registry_guard = registry
-        .read()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
+///
+/// 合并 prometheus-client 和 tonic_prometheus_layer 两个 registry 的输出
+async fn metrics_handler(State(with_grpc): State<bool>) -> Result<impl IntoResponse, StatusCode> {
     let mut buffer = String::new();
-    encode(&mut buffer, &*registry_guard)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // 1. 编码 prometheus-client registry (aop metrics)
+    {
+        let registry_guard = GLOBAL_REGISTRY
+            .read()
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        encode(&mut buffer, &*registry_guard).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
+    // 2. 如果启用了 gRPC metrics，追加 tonic_prometheus_layer 的输出
+    if with_grpc {
+        if let Ok(grpc_metrics) = tonic_prometheus_layer::metrics::encode_to_string() {
+            if !buffer.is_empty() && !buffer.ends_with('\n') {
+                buffer.push('\n');
+            }
+            buffer.push_str(&grpc_metrics);
+        }
+    }
 
     Ok((
         StatusCode::OK,
@@ -76,14 +101,15 @@ async fn metrics_handler(
 
 /// 内部初始化函数，实际启动 Metric HTTP Server
 async fn init_metric_inner(config: MetricServerConfig) -> Result<()> {
-    let registry = Arc::clone(&GLOBAL_REGISTRY);
+    let path = config.path.clone();
+    let port = config.port;
 
     tokio::spawn(async move {
         let app = Router::new()
-            .route(&config.path, get(metrics_handler))
-            .with_state(registry);
+            .route(&path, get(metrics_handler))
+            .with_state(config.with_grpc);
 
-        let addr = format!("0.0.0.0:{}", config.port);
+        let addr = format!("0.0.0.0:{}", port);
         let listener = match TcpListener::bind(&addr).await {
             Ok(l) => l,
             Err(e) => {
@@ -92,7 +118,7 @@ async fn init_metric_inner(config: MetricServerConfig) -> Result<()> {
             }
         };
 
-        eprintln!("Metric server listening on http://{}{}", addr, config.path);
+        eprintln!("Metric server listening on http://{}{}", addr, path);
 
         if let Err(e) = axum::serve(listener, app).await {
             eprintln!("Metric server error: {}", e);
@@ -119,11 +145,36 @@ mod tests {
         assert!(Arc::ptr_eq(&registry1, &registry2));
     }
 
+    #[test]
+    fn test_metric_server_config_default() {
+        let config = MetricServerConfig::default();
+        assert_eq!(config.port, 9090);
+        assert_eq!(config.path, "/metrics");
+        assert!(config.with_grpc);
+    }
+
+    #[test]
+    fn test_metric_server_config_deserialize() {
+        let config: MetricServerConfig = json5::from_str(
+            r#"{
+                port: 9091,
+                path: "/prometheus",
+                with_grpc: false
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.port, 9091);
+        assert_eq!(config.path, "/prometheus");
+        assert!(!config.with_grpc);
+    }
+
     #[tokio::test]
     async fn test_init_metric() {
         let config = MetricServerConfig {
             port: 19999,
             path: "/metrics".to_string(),
+            with_grpc: false,
         };
 
         // 启动 server

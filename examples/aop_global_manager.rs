@@ -9,8 +9,8 @@
 //! - Metric: Prometheus 指标收集
 
 use anyhow::Result;
-use rustx::aop::{init, AopManagerConfig};
 use rustx::aop; // 导入 aop! 宏
+use rustx::aop::{init, AopManagerConfig};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -37,10 +37,7 @@ impl UserService {
     /// - Prometheus 指标（如果配置了 metric）
     async fn get_user(&self, user_id: &str) -> Result<String> {
         // 使用 aop! 宏包装模拟的数据库查询
-        aop!(
-            Some(&self.aop),
-            mock_db_query(user_id).await
-        )
+        aop!(Some(&self.aop), mock_db_query(user_id).await)
     }
 
     /// 创建用户（参数会被消费，需要 clone 以支持重试）
@@ -148,7 +145,7 @@ async fn main() -> Result<()> {
                 service_name: "aop-example",
                 sample_rate: 1.0,
                 exporter: {
-                    type: "stdout"
+                    type: "none"
                 },
                 subscriber: {
                     log_level: "info",
@@ -174,8 +171,7 @@ async fn main() -> Result<()> {
 
     // ===== 步骤 2: 从全局管理器获取 aop 实例 =====
 
-    let service_aop = rustx::aop::get("service_aop")
-        .expect("service_aop should exist");
+    let service_aop = rustx::aop::get("service_aop").expect("service_aop should exist");
     println!("✓ 从全局管理器获取 service_aop\n");
 
     // ===== 步骤 3: 创建服务并使用 aop! 宏 =====

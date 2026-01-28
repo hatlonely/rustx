@@ -72,6 +72,7 @@ opentelemetry-stdout = { version = "0.31", features = ["trace"] }
 tonic = { version = "0.14", features = ["transport"] }
 tonic-prost = "0.14"
 tonic-tracing-opentelemetry = "0.32"
+tonic_prometheus_layer = "0.1"
 tower = "0.5"
 http = "1.0"
 # Tracing dependencies
