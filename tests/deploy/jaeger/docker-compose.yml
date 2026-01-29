@@ -1,0 +1,67 @@
+# Jaeger 分布式追踪服务
+#
+# Jaeger 是一个开源的分布式追踪系统，用于监控和排查微服务架构中的问题
+#
+# 服务端口:
+#   - 16686: Jaeger UI (Web界面)
+#   - 14268: HTTP collector
+#   - 14250: gRPC collector
+#   - 6831: UDP agent (Thrift compact)
+#   - 6832: UDP agent (Thrift binary)
+#   - 5778: HTTP server
+#   - 4317: OTLP gRPC receiver
+#   - 4318: OTLP HTTP receiver
+#
+# 启动方式:
+#   docker compose -f tests/deploy/jaeger/docker-compose.yml up -d
+#
+# 访问方式:
+#   打开浏览器访问: http://localhost:16686
+#
+# 停止方式:
+#   docker compose -f tests/deploy/jaeger/docker-compose.yml down
+
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: rustx-jaeger
+    restart: unless-stopped
+    environment:
+      # 收集器配置
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+      # 存储类型 (memory 或 badger 或 elasticsearch)
+      - SPAN_STORAGE_TYPE=memory
+      # UI 配置
+      - QUERY_BASE_PATH=/
+      # 日志级别
+      - LOG_LEVEL=info
+    ports:
+      # Jaeger UI - Web界面
+      - "${JAEGER_UI_PORT:-16686}:16686"
+      # HTTP collector - 用于接收 trace 数据
+      - "${JAEGER_COLLECTOR_HTTP_PORT:-14268}:14268"
+      # gRPC collector - 用于接收 trace 数据
+      - "${JAEGER_COLLECTOR_GRPC_PORT:-14250}:14250"
+      # UDP agent - Thrift compact protocol
+      - "${JAEGER_AGENT_COMPACT_PORT:-6831}:6831/udp"
+      # UDP agent - Thrift binary protocol
+      - "${JAEGER_AGENT_BINARY_PORT:-6832}:6832/udp"
+      # HTTP server - 配置和采样策略
+      - "${JAEGER_AGENT_HTTP_PORT:-5778}:5778"
+      # OTLP gRPC receiver - OpenTelemetry Protocol
+      - "${JAEGER_OTLP_GRPC_PORT:-4317}:4317"
+      # OTLP HTTP receiver - OpenTelemetry Protocol
+      - "${JAEGER_OTLP_HTTP_PORT:-4318}:4318"
+      # Zipkin compatible endpoint (optional)
+      - "${JAEGER_ZIPKIN_PORT:-9411}:9411"
+    networks:
+      - rustx-test
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:14269/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  rustx-test:
+    driver: bridge
