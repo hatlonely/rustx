@@ -4,13 +4,7 @@
 //! 同时支持 prometheus-client (aop 模块)、tonic_prometheus_layer (gRPC metrics) 和 axum-prometheus (HTTP metrics) 的输出
 
 use anyhow::Result;
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::get,
-    Router,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Router};
 use garde::Validate;
 use once_cell::sync::{Lazy, OnceCell};
 use prometheus_client::encoding::text::encode;
@@ -63,7 +57,7 @@ pub fn global_registry() -> Arc<RwLock<Registry>> {
 /// # Panics
 ///
 /// 如果不在 Tokio runtime 上下文中调用，会 panic。
-pub fn http_metric_layer() -> axum_prometheus::PrometheusMetricLayer<'static> {
+pub fn http_metrics_layer() -> axum_prometheus::PrometheusMetricLayer<'static> {
     // 使用 OnceCell 确保 handle 只创建一次
     HTTP_METRICS_INIT.get_or_init(|| {
         let (_, handle) = axum_prometheus::PrometheusMetricLayer::pair();
@@ -100,7 +94,7 @@ static GRPC_METRICS_INIT: OnceCell<()> = OnceCell::new();
 /// # Panics
 ///
 /// 如果不在 Tokio runtime 上下文中调用，会 panic。
-pub fn grpc_metric_layer() -> tonic_prometheus_layer::MetricsLayer {
+pub fn grpc_metrics_layer() -> tonic_prometheus_layer::MetricsLayer {
     // 使用 OnceCell 确保只初始化一次
     GRPC_METRICS_INIT.get_or_init(|| {
         tonic_prometheus_layer::metrics::try_init_settings(
@@ -170,7 +164,9 @@ struct MetricsState {
 /// Metrics 处理器
 ///
 /// 合并 prometheus-client、tonic_prometheus_layer 和 axum-prometheus 三个 registry 的输出
-async fn metrics_handler(State(state): State<MetricsState>) -> Result<impl IntoResponse, StatusCode> {
+async fn metrics_handler(
+    State(state): State<MetricsState>,
+) -> Result<impl IntoResponse, StatusCode> {
     let mut buffer = String::new();
 
     // 1. 编码 prometheus-client registry (aop metrics)

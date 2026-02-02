@@ -19,7 +19,6 @@ use serde::Deserialize;
 use smart_default::SmartDefault;
 use std::sync::Arc;
 use tonic::{transport::Server, Request, Response, Status};
-use tonic_tracing_opentelemetry::middleware::server;
 
 // 生成的 proto 代码位于 echo 模块
 pub mod echo {
@@ -169,8 +168,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("gRPC Echo 服务端启动，监听: {}", addr);
 
     Server::builder()
-        .layer(rustx::aop::grpc_metric_layer())
-        .layer(server::OtelGrpcLayer::default())
+        .layer(rustx::aop::grpc_metrics_layer())
+        .layer(rustx::aop::grpc_tracing_layer())
         .add_service(EchoServiceServer::new(echo_service))
         .serve(addr)
         .await?;

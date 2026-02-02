@@ -41,7 +41,10 @@ pub use aop_manager::{AopManager, AopManagerConfig};
 pub use global_aop_manager::{
     add, contains, get, get_default, get_or_default, init, keys, remove, set_default,
 };
-pub use metrics::{global_registry, grpc_metric_layer, http_metric_layer, init_metric, GlobalMetricsConfig};
+pub use metrics::{
+    global_registry, grpc_metrics_layer, http_metrics_layer, init_metric, GlobalMetricsConfig,
+};
 pub use tracing::{
-    init_tracer, BatchProcessorConfig, ExporterConfig, GlobalTracingConfig, OtlpExporterConfig,
+    grpc_tracing_layer, http_tracing_layer, init_tracer, BatchProcessorConfig, ExporterConfig,
+    GlobalTracingConfig, HttpTraceLayer, OtlpExporterConfig, OtelGrpcLayer,
 };

@@ -15,6 +15,12 @@ use tracing::Level;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::prelude::*;
 
+/// gRPC tracing layer for tonic
+pub use tonic_tracing_opentelemetry::middleware::server::OtelGrpcLayer;
+
+/// HTTP tracing layer for tower/axum
+pub type HttpTraceLayer = tower_http::trace::TraceLayer<tower_http::classify::SharedClassifier<tower_http::classify::ServerErrorsAsFailures>>;
+
 /// 全局 Tracing 配置
 #[derive(Debug, Clone, Deserialize, SmartDefault, Validate, PartialEq)]
 #[serde(default)]
@@ -248,6 +254,45 @@ fn init_tracer_inner(tracer_config: &GlobalTracingConfig) -> Result<()> {
     init_subscriber(tracer_config);
 
     Ok(())
+}
+
+/// 获取 gRPC tracing layer
+///
+/// 返回用于 tonic gRPC 服务端的 OpenTelemetry tracing layer
+/// 自动与全局 tracer provider 集成
+///
+/// # 使用示例
+///
+/// ```rust,ignore
+/// use rustx::aop::grpc_tracing_layer;
+///
+/// let tracing_layer = grpc_tracing_layer();
+/// Server::builder()
+///     .layer(tracing_layer)
+///     .add_service(service)
+///     .serve(addr)
+///     .await?;
+/// ```
+pub fn grpc_tracing_layer() -> OtelGrpcLayer {
+    OtelGrpcLayer::default()
+}
+
+/// 获取 HTTP tracing layer
+///
+/// 返回用于 tower/axum HTTP 服务端的 tracing layer
+/// 自动记录 HTTP 请求和响应的详细信息
+///
+/// # 使用示例
+///
+/// ```rust,ignore
+/// use rustx::aop::http_tracing_layer;
+///
+/// let app = Router::new()
+///     .route("/", get(handler))
+///     .layer(http_tracing_layer());
+/// ```
+pub fn http_tracing_layer() -> HttpTraceLayer {
+    tower_http::trace::TraceLayer::new_for_http()
 }
 
 /// 初始化 tracing_subscriber

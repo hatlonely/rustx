@@ -23,7 +23,6 @@ use rustx::aop::{Aop, AopConfig, AopManagerConfig};
 use serde::Deserialize;
 use smart_default::SmartDefault;
 use std::sync::Arc;
-use tower_http::trace::TraceLayer;
 
 // MyEchoService 配置
 #[derive(Debug, Clone, Deserialize, SmartDefault)]
@@ -82,14 +81,10 @@ async fn echo_handler(
     tracing::info!("收到请求: {}", message);
 
     // 使用 aop 宏包装的异步方法处理消息
-    let processed_message = state
-        .service
-        .process_message(&message)
-        .await
-        .map_err(|e| {
-            tracing::error!("处理消息失败: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let processed_message = state.service.process_message(&message).await.map_err(|e| {
+        tracing::error!("处理消息失败: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     Ok((StatusCode::OK, processed_message))
 }
@@ -178,8 +173,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/echo/{message}", get(echo_handler))
         .with_state(state)
-        .layer(rustx::aop::metrics::http_metric_layer())
-        .layer(TraceLayer::new_for_http());
+        .layer(rustx::aop::http_metrics_layer())
+        .layer(rustx::aop::http_tracing_layer());
 
     let addr = "[::1]:3000";
     tracing::info!("HTTP Echo 服务端启动，监听: http://{}", addr);
