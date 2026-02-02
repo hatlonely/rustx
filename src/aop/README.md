@@ -69,7 +69,7 @@ let config: UserServiceConfig = json5::from_str(r#"
             name: "user.service",    // 分布式追踪的 span 名称
             with_args: false         // 是否记录参数
         },
-        metric: {
+        metrics: {
             prefix: "user_service",  // metric 指标前缀
             labels: {                // 固定标签
                 service: "user-service",
@@ -311,8 +311,8 @@ AOP 主配置，支持两种模式：
             with_args: false
         },
 
-        // Metric 配置（可选）
-        metric: {
+        // Metrics 配置（可选）
+        metrics: {
             // Metric 名称前缀，默认 "aop"
             // 生成的指标包括：
             // - {prefix}_total: 总调用次数
@@ -406,11 +406,11 @@ AOP 主配置，支持两种模式：
 }
 ```
 
-### MetricConfig
+### MetricsConfig
 
 ```json5
 {
-    metric: {
+    metrics: {
         // Metric 名称前缀（默认 "aop"）
         // 实际生成的 metric 指标名为：
         // - {prefix}_total: 总调用次数（按 operation + status 分组）
@@ -432,9 +432,9 @@ AOP 主配置，支持两种模式：
 }
 ```
 
-### TracerConfig（全局 Tracer 配置）
+### GlobalTracingConfig（全局 Tracing 配置）
 
-TracerConfig 用于初始化全局的 OpenTelemetry tracer provider，支持分布式追踪。
+GlobalTracingConfig 用于初始化全局的 OpenTelemetry tracer provider，支持分布式追踪。
 
 ```json5
 {
@@ -471,10 +471,10 @@ TracerConfig 用于初始化全局的 OpenTelemetry tracer provider，支持分�
 **使用示例：**
 
 ```rust
-use rustx::aop::tracer::{init_tracer, TracerConfig};
+use rustx::aop::tracing::{init_tracer, GlobalTracingConfig};
 
 // 使用 json5::from_str 解析配置
-let config: TracerConfig = json5::from_str(r#"
+let config: GlobalTracingConfig = json5::from_str(r#"
 {
     enabled: true,
     service_name: "user-service",
@@ -497,9 +497,9 @@ init_tracer(&config)?;
 // 现在可以在代码中使用 #[tracing::instrument] 宏进行分布式追踪
 ```
 
-### MetricServerConfig（全局 Metric Server 配置）
+### GlobalMetricsConfig（全局 Metrics Server 配置）
 
-MetricServerConfig 用于启动 Prometheus HTTP Server，提供 metrics 拉取端点。
+GlobalMetricsConfig 用于启动 Prometheus HTTP Server，提供 metrics 拉取端点。
 
 ```json5
 {
@@ -511,10 +511,10 @@ MetricServerConfig 用于启动 Prometheus HTTP Server，提供 metrics 拉取�
 **使用示例：**
 
 ```rust
-use rustx::aop::metric::{init_metric, MetricServerConfig};
+use rustx::aop::metrics::{init_metric, GlobalMetricsConfig};
 
 // 使用 json5::from_str 解析配置
-let config: MetricServerConfig = json5::from_str(r#"
+let config: GlobalMetricsConfig = json5::from_str(r#"
 {
     port: 9090,
     path: "/metrics"

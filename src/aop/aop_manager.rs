@@ -1,4 +1,4 @@
-use crate::aop::{Aop, AopConfig, MetricServerConfig, TracerConfig as AopTracerConfig};
+use crate::aop::{Aop, AopConfig, GlobalMetricsConfig, GlobalTracingConfig};
 use crate::cfg::ConfigReloader;
 use anyhow::Result;
 use serde::Deserialize;
@@ -18,11 +18,11 @@ pub struct AopManagerConfig {
     /// 命名 aop 配置映射
     pub aops: HashMap<String, AopConfig>,
 
-    /// 全局 Tracer 配置
-    pub tracer: Option<AopTracerConfig>,
+    /// 全局 Tracing 配置
+    pub global_tracing: Option<GlobalTracingConfig>,
 
-    /// 全局 Metric Server 配置（配置此项即启用 metric server）
-    pub metric: Option<MetricServerConfig>,
+    /// 全局 Metrics Server 配置（配置此项即启用 metrics server）
+    pub global_metrics: Option<GlobalMetricsConfig>,
 }
 
 /// AOP 管理器
@@ -37,13 +37,13 @@ pub struct AopManager {
 impl AopManager {
     /// 从配置创建 AopManager
     pub fn new(config: AopManagerConfig) -> Result<Self> {
-        // 如果配置了 tracer，创建并设置全局 tracer provider
-        if let Some(ref tracer_config) = config.tracer {
+        // 如果配置了 global_tracing，创建并设置全局 tracer provider
+        if let Some(ref tracer_config) = config.global_tracing {
             crate::aop::init_tracer(tracer_config)?;
         }
 
-        // 如果配置了 metric，启动全局 metric server
-        if let Some(ref metric_config) = config.metric {
+        // 如果配置了 global_metrics，启动全局 metrics server
+        if let Some(ref metric_config) = config.global_metrics {
             // 使用 handle spawn 到后台
             let handle = tokio::runtime::Handle::try_current();
             if let Ok(handle) = handle {
@@ -306,8 +306,8 @@ mod tests {
         let config = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
-            tracer: None,
-            metric: None,
+            global_tracing: None,
+            global_metrics: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -334,8 +334,8 @@ mod tests {
         let config = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
-            tracer: None,
-            metric: None,
+            global_tracing: None,
+            global_metrics: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -361,8 +361,8 @@ mod tests {
         let config = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
-            tracer: None,
-            metric: None,
+            global_tracing: None,
+            global_metrics: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -383,8 +383,8 @@ mod tests {
         let config = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops: HashMap::new(),
-            tracer: None,
-            metric: None,
+            global_tracing: None,
+            global_metrics: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -410,8 +410,8 @@ mod tests {
         let config = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
-            tracer: None,
-            metric: None,
+            global_tracing: None,
+            global_metrics: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -437,8 +437,8 @@ mod tests {
         let config = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
-            tracer: None,
-            metric: None,
+            global_tracing: None,
+            global_metrics: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -483,8 +483,8 @@ mod tests {
         let config = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
-            tracer: None,
-            metric: None,
+            global_tracing: None,
+            global_metrics: None,
         };
 
         let manager = AopManager::new(config)?;
@@ -523,8 +523,8 @@ mod tests {
         let config1 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops: aops.clone(),
-            tracer: None,
-            metric: None,
+            global_tracing: None,
+            global_metrics: None,
         };
 
         let mut manager = AopManager::new(config1)?;
@@ -538,8 +538,8 @@ mod tests {
         let config2 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
-            tracer: None,
-            metric: None,
+            global_tracing: None,
+            global_metrics: None,
         };
 
         manager.reload_config(config2)?;
@@ -572,8 +572,8 @@ mod tests {
         let config1 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
-            tracer: None,
-            metric: None,
+            global_tracing: None,
+            global_metrics: None,
         };
 
         let mut manager = AopManager::new(config1)?;
@@ -603,8 +603,8 @@ mod tests {
         let config2 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops: new_aops,
-            tracer: None,
-            metric: None,
+            global_tracing: None,
+            global_metrics: None,
         };
 
         manager.reload_config(config2)?;
@@ -639,8 +639,8 @@ mod tests {
         let config1 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
-            tracer: None,
-            metric: None,
+            global_tracing: None,
+            global_metrics: None,
         };
 
         let mut manager = AopManager::new(config1)?;
@@ -662,8 +662,8 @@ mod tests {
         let config2 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops: new_aops,
-            tracer: None,
-            metric: None,
+            global_tracing: None,
+            global_metrics: None,
         };
 
         manager.reload_config(config2)?;
@@ -704,8 +704,8 @@ mod tests {
         let config1 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops,
-            tracer: None,
-            metric: None,
+            global_tracing: None,
+            global_metrics: None,
         };
 
         let mut manager = AopManager::new(config1)?;
@@ -738,8 +738,8 @@ mod tests {
         let config2 = AopManagerConfig {
             default: AopConfig::Create(create_test_aop_config()),
             aops: new_aops,
-            tracer: None,
-            metric: None,
+            global_tracing: None,
+            global_metrics: None,
         };
 
         manager.reload_config(config2)?;

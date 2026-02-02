@@ -74,6 +74,7 @@ tonic-prost = "0.14"
 tonic-tracing-opentelemetry = "0.32"
 tonic_prometheus_layer = "0.1"
 tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "follow-redirect"] }
 http = "1.0"
 # Tracing dependencies
 tracing = "0.1"
@@ -81,6 +82,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-opentelemetry = "0.32"
 # Prometheus metrics
 prometheus-client = "0.22"
+prometheus = "0.13"
+axum-prometheus = "0.7"
 
 [build-dependencies]
 prost-build = "0.14"

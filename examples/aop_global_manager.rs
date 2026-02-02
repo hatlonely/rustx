@@ -127,9 +127,8 @@ async fn main() -> Result<()> {
                         with_args: true
                     },
 
-                    // Metric 配置
-                    metric: {
-                        enabled: true,
+                    // Metrics 配置
+                    metrics: {
                         prefix: "example_app",
                         labels: {
                             service: "user_service",
@@ -139,8 +138,8 @@ async fn main() -> Result<()> {
                 }
             },
 
-            // 全局 Tracer 配置
-            tracer: {
+            // 全局 Tracing 配置
+            global_tracing: {
                 enabled: true,
                 service_name: "aop-example",
                 sample_rate: 1.0,
@@ -153,9 +152,8 @@ async fn main() -> Result<()> {
                 }
             },
 
-            // 全局 Metric Server 配置
-            metric: {
-                enabled: true,
+            // 全局 Metrics Server 配置
+            global_metrics: {
                 port: 9090,
                 path: "/metrics"
             }

@@ -4,7 +4,7 @@
 //! 并在同步/异步方法中使用 tracing::instrument 进行追踪
 
 use anyhow::Result;
-use rustx::aop::tracer::{init_tracer, TracerConfig};
+use rustx::aop::tracing::{init_tracer, GlobalTracingConfig};
 use std::time::Duration;
 
 // ========== 同步方法示例 ==========
@@ -126,7 +126,7 @@ async fn mixed_workflow(input: i32) -> i32 {
 #[tokio::main]
 async fn main() -> Result<()> {
     // ===== 初始化 Tracer =====
-    let tracer_config: TracerConfig = json5::from_str(
+    let tracer_config: GlobalTracingConfig = json5::from_str(
         r#"
         {
             enabled: true,

@@ -15,10 +15,10 @@ use tracing::Level;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::prelude::*;
 
-/// Tracer 配置
+/// 全局 Tracing 配置
 #[derive(Debug, Clone, Deserialize, SmartDefault, Validate, PartialEq)]
 #[serde(default)]
-pub struct TracerConfig {
+pub struct GlobalTracingConfig {
     /// 是否启用 tracing
     #[default = false]
     #[garde(skip)]
@@ -146,7 +146,7 @@ static INIT_ONCE: OnceLock<Result<()>> = OnceLock::new();
 /// 根据配置创建 tracer provider 并设置为全局 provider
 /// 同时自动初始化 tracing_subscriber
 /// 多次调用此函数只会初始化一次，后续调用会返回第一次初始化的结果
-pub fn init_tracer(tracer_config: &TracerConfig) -> Result<()> {
+pub fn init_tracer(tracer_config: &GlobalTracingConfig) -> Result<()> {
     INIT_ONCE
         .get_or_init(|| init_tracer_inner(tracer_config))
         .as_ref()
@@ -155,7 +155,7 @@ pub fn init_tracer(tracer_config: &TracerConfig) -> Result<()> {
 }
 
 /// 内部初始化函数，实际初始化 tracer provider 和 subscriber
-fn init_tracer_inner(tracer_config: &TracerConfig) -> Result<()> {
+fn init_tracer_inner(tracer_config: &GlobalTracingConfig) -> Result<()> {
     // 如果未启用，直接返回
     if !tracer_config.enabled {
         return Ok(());
@@ -253,7 +253,7 @@ fn init_tracer_inner(tracer_config: &TracerConfig) -> Result<()> {
 /// 初始化 tracing_subscriber
 ///
 /// 创建 OTEL layer 和 fmt layer 并注册到全局 dispatcher
-fn init_subscriber(config: &TracerConfig) {
+fn init_subscriber(config: &GlobalTracingConfig) {
     // 创建 OTEL layer，将 tracing events 转换为 OTEL spans
     let service_name = config.service_name.clone();
     let tracer = global::tracer(service_name);
@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn test_tracer_config_default() {
-        let config = TracerConfig::default();
+        let config = GlobalTracingConfig::default();
         assert!(!config.enabled);
         assert_eq!(config.service_name, "rustx-service");
         assert_eq!(config.sample_rate, 1.0);
@@ -305,7 +305,7 @@ mod tests {
             }
         }"#;
 
-        let config: TracerConfig = json5::from_str(config_json).unwrap();
+        let config: GlobalTracingConfig = json5::from_str(config_json).unwrap();
         assert!(config.enabled);
         assert_eq!(config.service_name, "my-service");
         assert_eq!(config.sample_rate, 0.5);
@@ -362,7 +362,7 @@ mod tests {
             }
         }"#;
 
-        let config: TracerConfig = json5::from_str(config_json).unwrap();
+        let config: GlobalTracingConfig = json5::from_str(config_json).unwrap();
         assert_eq!(config.subscriber.log_level, "debug");
         assert!(!config.subscriber.with_fmt_layer);
         assert_eq!(config.subscriber.level(), Level::DEBUG);
@@ -371,7 +371,7 @@ mod tests {
     #[test]
     fn test_tracer_config_validation() {
         // 有效配置
-        let config = TracerConfig {
+        let config = GlobalTracingConfig {
             enabled: true,
             service_name: "test".to_string(),
             sample_rate: 0.8,
@@ -380,20 +380,20 @@ mod tests {
         assert!(config.validate().is_ok());
 
         // 采样率超出范围
-        let config = TracerConfig {
+        let config = GlobalTracingConfig {
             sample_rate: 1.5,
             ..Default::default()
         };
         assert!(config.validate().is_err());
 
-        let config = TracerConfig {
+        let config = GlobalTracingConfig {
             sample_rate: -0.1,
             ..Default::default()
         };
         assert!(config.validate().is_err());
 
         // service_name 为空
-        let config = TracerConfig {
+        let config = GlobalTracingConfig {
             service_name: "".to_string(),
             ..Default::default()
         };

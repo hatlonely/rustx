@@ -61,17 +61,17 @@ pub fn extract_fixed_labels(
 #[derive(Debug, Clone, Deserialize, SmartDefault, PartialEq)]
 #[serde(default)]
 pub struct AopCreateConfig {
-    /// Logging 配置
-    pub logging: Option<LoggingConfig>,
-
     /// Retry 配置
     pub retry: Option<RetryConfig>,
+
+    /// Logging 配置
+    pub logging: Option<LoggingConfig>,
 
     /// Tracing 配置
     pub tracing: Option<TracingConfig>,
 
-    /// Metric 配置
-    pub metric: Option<MetricConfig>,
+    /// Metrics 配置
+    pub metrics: Option<MetricsConfig>,
 }
 
 /// Logging 配置
@@ -108,10 +108,10 @@ pub struct TracingConfig {
     pub with_args: bool,
 }
 
-/// Metric 配置（运行时，用于记录指标）
+/// Metrics 配置（运行时，用于记录指标）
 #[derive(Debug, Clone, Deserialize, SmartDefault, Validate, PartialEq)]
 #[serde(default)]
-pub struct MetricConfig {
+pub struct MetricsConfig {
     /// Metric 名称前缀
     #[default = "aop"]
     #[garde(length(min = 1))]
@@ -202,8 +202,8 @@ pub struct Aop {
     /// Tracing 配置（如果启用 tracing）
     pub tracing_config: Option<TracingConfig>,
 
-    /// Metric 配置（如果启用 metric）
-    pub metric_config: Option<MetricConfig>,
+    /// Metrics 配置（如果启用 metrics）
+    pub metrics_config: Option<MetricsConfig>,
 
     /// Metric: 总调用次数（按 operation + status 分组）
     pub metric_total: Option<Family<MetricLabels, Counter<u64>>>,
@@ -257,91 +257,98 @@ impl Aop {
             garde::Validate::validate(tracing_config)?;
         }
 
-        // 处理 metric 配置
-        let (metric_config, metric_total, metric_retry_count, metric_duration, metric_in_progress, metric_default_operation_label, metric_default_metric_labels) =
-            if let Some(metric_cfg) = config.metric {
-                // 验证 metric 配置
-                garde::Validate::validate(&metric_cfg)?;
+        // 处理 metrics 配置
+        let (
+            metrics_config,
+            metric_total,
+            metric_retry_count,
+            metric_duration,
+            metric_in_progress,
+            metric_default_operation_label,
+            metric_default_metric_labels,
+        ) = if let Some(metric_cfg) = config.metrics {
+            // 验证 metric 配置
+            garde::Validate::validate(&metric_cfg)?;
 
-                // 注册 metric 到全局 Registry
-                let registry = crate::aop::global_registry();
-                let mut registry = registry.write().unwrap();
-                let prefix = &metric_cfg.prefix;
+            // 注册 metric 到全局 Registry
+            let registry = crate::aop::global_registry();
+            let mut registry = registry.write().unwrap();
+            let prefix = &metric_cfg.prefix;
 
-                // 注册 total counter
-                let total = Family::default();
-                registry.register(
-                    format!("{}_total", prefix),
-                    format!("Total number of {} calls", prefix),
-                    total.clone(),
-                );
+            // 注册 total counter
+            let total = Family::default();
+            registry.register(
+                format!("{}_total", prefix),
+                format!("Total number of {} calls", prefix),
+                total.clone(),
+            );
 
-                // 注册 retry_count counter
-                let retry_count = Family::default();
-                registry.register(
-                    format!("{}_retry_count", prefix),
-                    format!("Total number of {} retries", prefix),
-                    retry_count.clone(),
-                );
+            // 注册 retry_count counter
+            let retry_count = Family::default();
+            registry.register(
+                format!("{}_retry_count", prefix),
+                format!("Total number of {} retries", prefix),
+                retry_count.clone(),
+            );
 
-                // 注册 duration histogram
-                fn new_histogram() -> Histogram {
-                    Histogram::new(exponential_buckets(1.0, 2.0, 12))
-                }
-                let duration = Family::new_with_constructor(new_histogram as fn() -> Histogram);
-                registry.register(
-                    format!("{}_duration_ms", prefix),
-                    format!("Duration of {} calls in milliseconds", prefix),
-                    duration.clone(),
-                );
+            // 注册 duration histogram
+            fn new_histogram() -> Histogram {
+                Histogram::new(exponential_buckets(1.0, 2.0, 12))
+            }
+            let duration = Family::new_with_constructor(new_histogram as fn() -> Histogram);
+            registry.register(
+                format!("{}_duration_ms", prefix),
+                format!("Duration of {} calls in milliseconds", prefix),
+                duration.clone(),
+            );
 
-                // 注册 in_progress gauge
-                let in_progress = Family::default();
-                registry.register(
-                    format!("{}_in_progress", prefix),
-                    format!("Number of {} calls currently in progress", prefix),
-                    in_progress.clone(),
-                );
+            // 注册 in_progress gauge
+            let in_progress = Family::default();
+            registry.register(
+                format!("{}_in_progress", prefix),
+                format!("Number of {} calls currently in progress", prefix),
+                in_progress.clone(),
+            );
 
-                // 预创建默认标签（operation 和 status 为空，使用时替换）
-                use std::collections::HashMap;
-                let empty_labels = HashMap::new();
-                let labels_map = metric_cfg.labels.as_ref().unwrap_or(&empty_labels);
-                let (service, env, version, cluster) = extract_fixed_labels(labels_map);
-                let default_operation_label = Some(OperationLabel {
-                    operation: String::new(),
-                    service: service.clone(),
-                    env: env.clone(),
-                    version: version.clone(),
-                    cluster: cluster.clone(),
-                });
-                let default_metric_labels = Some(MetricLabels {
-                    operation: String::new(),
-                    status: None,
-                    service,
-                    env,
-                    version,
-                    cluster,
-                });
+            // 预创建默认标签（operation 和 status 为空，使用时替换）
+            use std::collections::HashMap;
+            let empty_labels = HashMap::new();
+            let labels_map = metric_cfg.labels.as_ref().unwrap_or(&empty_labels);
+            let (service, env, version, cluster) = extract_fixed_labels(labels_map);
+            let default_operation_label = Some(OperationLabel {
+                operation: String::new(),
+                service: service.clone(),
+                env: env.clone(),
+                version: version.clone(),
+                cluster: cluster.clone(),
+            });
+            let default_metric_labels = Some(MetricLabels {
+                operation: String::new(),
+                status: None,
+                service,
+                env,
+                version,
+                cluster,
+            });
 
-                (
-                    Some(metric_cfg),
-                    Some(total),
-                    Some(retry_count),
-                    Some(duration),
-                    Some(in_progress),
-                    default_operation_label,
-                    default_metric_labels,
-                )
-            } else {
-                (None, None, None, None, None, None, None)
-            };
+            (
+                Some(metric_cfg),
+                Some(total),
+                Some(retry_count),
+                Some(duration),
+                Some(in_progress),
+                default_operation_label,
+                default_metric_labels,
+            )
+        } else {
+            (None, None, None, None, None, None, None)
+        };
 
         Ok(Self {
             logger,
             retry_config: config.retry,
             tracing_config: config.tracing,
-            metric_config,
+            metrics_config,
             metric_total,
             metric_retry_count,
             metric_duration,
@@ -804,7 +811,7 @@ mod tests {
                 ..Default::default()
             }),
             tracing_config: None,
-            metric_config: None,
+            metrics_config: None,
             metric_total: None,
             metric_retry_count: None,
             metric_duration: None,

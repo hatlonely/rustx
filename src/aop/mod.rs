@@ -31,17 +31,17 @@ pub mod aop;
 pub mod aop_manager;
 pub mod global_aop_manager;
 pub mod macros;
-pub mod metric;
-pub mod tracer;
+pub mod metrics;
+pub mod tracing;
 
 pub use aop::{
-    Aop, AopConfig, AopCreateConfig, LoggingConfig, MetricConfig, RetryConfig, TracingConfig,
+    Aop, AopConfig, AopCreateConfig, LoggingConfig, MetricsConfig, RetryConfig, TracingConfig,
 };
 pub use aop_manager::{AopManager, AopManagerConfig};
 pub use global_aop_manager::{
     add, contains, get, get_default, get_or_default, init, keys, remove, set_default,
 };
-pub use metric::{global_registry, init_metric, MetricServerConfig};
-pub use tracer::{
-    init_tracer, BatchProcessorConfig, ExporterConfig, OtlpExporterConfig, TracerConfig,
+pub use metrics::{global_registry, grpc_metric_layer, http_metric_layer, init_metric, GlobalMetricsConfig};
+pub use tracing::{
+    init_tracer, BatchProcessorConfig, ExporterConfig, GlobalTracingConfig, OtlpExporterConfig,
 };
