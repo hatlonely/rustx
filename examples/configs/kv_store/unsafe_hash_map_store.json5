@@ -1,5 +1,5 @@
 {
-    "type": "HashMapStore",
+    "type": "UnsafeHashMapStore",
     "options": {
         "initial_capacity": 500
     }

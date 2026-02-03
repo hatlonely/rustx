@@ -16,7 +16,7 @@
 - 需要为类实现 From trait，优先使用 `impl_from!` 和 `impl_box_from!` 宏，例如 `impl_from!(FileSourceConfig => FileSource);`, `impl_box_from!(FileSource => dyn ConfigSource);`
 - trait 实现，这里的 trait 主要指我们自己定义的 trait，并非语言提供的通用 trait
     - trait 实现类必须以 trait 名字作为后缀
-    - 在 trait 同级目录中的 `registry.rs` 文件中提供 `register_<trait_name>s` 方法，统一使用 `register_trait` 将实现类注册到类型系统
+    - 在 trait 同级目录中的 `register.rs` 文件中提供 `register_<trait_name>s` 方法，统一使用 `register_trait` 将实现类注册到类型系统
 
 # example 样例规范
 

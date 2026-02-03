@@ -1,0 +1,6 @@
+{
+    "type": "RwLockHashMapStore",
+    "options": {
+        "initial_capacity": 500
+    }
+}

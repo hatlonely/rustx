@@ -4,14 +4,14 @@ use rustx::kv::store::{register_hash_stores, SetOptions, Store};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 零耦合自动注册！线程安全 SafeHashMapStore 完全不需要知道配置系统的存在
+    // 零耦合自动注册！线程安全 RwLockHashMapStore 完全不需要知道配置系统的存在
     register_hash_stores::<String, String>()?;
 
-    println!("=== 线程安全 SafeHashMapStore JSON 配置示例 ===");
+    println!("=== 线程安全 RwLockHashMapStore JSON 配置示例 ===");
 
     // JSON 配置示例 - 使用已知的类型名
     let json_config = r#"{
-        "type": "SafeHashMapStore",
+        "type": "RwLockHashMapStore",
         "options": {
             "initial_capacity": 10000
         }
@@ -21,18 +21,18 @@ async fn main() -> Result<()> {
     println!("🔍 使用的类型名: {}", type_options.type_name);
     let store: Box<dyn Store<String, String>> = create_trait_from_type_options(&type_options)?;
 
-    println!("✅ JSON配置创建线程安全SafeHashMapStore成功");
+    println!("✅ JSON配置创建线程安全RwLockHashMapStore成功");
 
     // 测试基本操作
     store
-        .set("key1".to_string(), "val1".to_string(), SetOptions::new())
+        .set(&"key1".to_string(), &"val1".to_string(), &SetOptions::new())
         .await?;
     store
-        .set("key2".to_string(), "val2".to_string(), SetOptions::new())
+        .set(&"key2".to_string(), &"val2".to_string(), &SetOptions::new())
         .await?;
 
-    let val1 = store.get("key1".to_string()).await?;
-    let val2 = store.get("key2".to_string()).await?;
+    let val1 = store.get(&"key1".to_string()).await?;
+    let val2 = store.get(&"key2".to_string()).await?;
     println!("📦 key1 value: {}", val1);
     println!("🔖 key2 value: {}", val2);
 
@@ -40,9 +40,9 @@ async fn main() -> Result<()> {
     println!("\n=== 测试 if_not_exist 条件 ===");
     let result = store
         .set(
-            "key1".to_string(),
-            "new_val1".to_string(),
-            SetOptions::new().with_if_not_exist(),
+            &"key1".to_string(),
+            &"new_val1".to_string(),
+            &SetOptions::new().with_if_not_exist(),
         )
         .await;
 
@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
         Ok(_) => println!("⚠️  key1 不存在时才能设置，但设置成功了？"),
     }
 
-    let unchanged_val = store.get("key1".to_string()).await?;
+    let unchanged_val = store.get(&"key1".to_string()).await?;
     println!("🔄 key1 值未改变: {}", unchanged_val);
 
     // 测试批量操作
@@ -64,27 +64,27 @@ async fn main() -> Result<()> {
     ];
 
     let batch_results = store
-        .batch_set(keys.clone(), values, SetOptions::new())
+        .batch_set(&keys, &values, &SetOptions::new())
         .await?;
     println!("📝 批量设置结果: {:?}", batch_results);
 
-    let (batch_values, batch_errors) = store.batch_get(keys.clone()).await?;
+    let (batch_values, batch_errors) = store.batch_get(&keys).await?;
     println!("📖 批量获取值: {:?}", batch_values);
     println!("⚠️  批量获取错误: {:?}", batch_errors);
 
     // 测试批量删除
     println!("\n=== 测试批量删除 ===");
-    let del_results = store.batch_del(keys.clone()).await?;
+    let del_results = store.batch_del(&keys).await?;
     println!("🗑️  批量删除结果: {:?}", del_results);
 
     // 验证删除结果
-    let (empty_values, not_found_errors) = store.batch_get(keys).await?;
+    let (empty_values, not_found_errors) = store.batch_get(&keys).await?;
     println!("🔍 删除后获取值: {:?}", empty_values);
     println!("❌ 删除后获取错误: {:?}", not_found_errors);
 
-    // 注意：SafeHashMapStore 内部使用 RwLock 提供线程安全
+    // 注意：RwLockHashMapStore 内部使用 RwLock 提供线程安全
     println!("\n=== 测试线程安全特性 ===");
-    println!("💡 SafeHashMapStore 使用 RwLock<HashMap> 实现，天然支持多线程安全");
+    println!("💡 RwLockHashMapStore 使用 RwLock<HashMap> 实现，天然支持多线程安全");
 
     // 测试性能对比示例
     println!("\n=== 性能测试示例 ===");
@@ -93,9 +93,9 @@ async fn main() -> Result<()> {
     for i in 0..10000 {
         store
             .set(
-                format!("perf_key_{}", i),
-                format!("perf_value_{}", i),
-                SetOptions::new(),
+                &format!("perf_key_{}", i),
+                &format!("perf_value_{}", i),
+                &SetOptions::new(),
             )
             .await?;
     }
@@ -105,7 +105,7 @@ async fn main() -> Result<()> {
 
     let start = std::time::Instant::now();
     for i in 0..10000 {
-        let _ = store.get(format!("perf_key_{}", i)).await?;
+        let _ = store.get(&format!("perf_key_{}", i)).await?;
     }
     let get_duration = start.elapsed();
     println!("🔍 获取 10000 个键值对耗时: {:?}", get_duration);
@@ -114,8 +114,8 @@ async fn main() -> Result<()> {
     store.close().await?;
     println!("🧹 存储已关闭和清理");
 
-    println!("\n🎉 线程安全 SafeHashMapStore JSON 配置示例完成!");
-    println!("💡 注意：SafeHashMapStore 内置线程安全保护，适合在多线程环境下使用，确保数据一致性");
+    println!("\n🎉 线程安全 RwLockHashMapStore JSON 配置示例完成!");
+    println!("💡 注意：RwLockHashMapStore 内置线程安全保护，适合在多线程环境下使用，确保数据一致性");
 
     Ok(())
 }

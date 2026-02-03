@@ -35,14 +35,14 @@ async fn main() -> Result<()> {
     // 测试基本操作
     println!("\n=== 测试基本操作 ===");
     store
-        .set("user:1".to_string(), "Alice".to_string(), SetOptions::new())
+        .set(&"user:1".to_string(), &"Alice".to_string(), &SetOptions::new())
         .await?;
     store
-        .set("user:2".to_string(), "Bob".to_string(), SetOptions::new())
+        .set(&"user:2".to_string(), &"Bob".to_string(), &SetOptions::new())
         .await?;
 
-    let user1 = store.get("user:1".to_string()).await?;
-    let user2 = store.get("user:2".to_string()).await?;
+    let user1 = store.get(&"user:1".to_string()).await?;
+    let user2 = store.get(&"user:2".to_string()).await?;
     println!("👤 user:1 = {}", user1);
     println!("👤 user:2 = {}", user2);
 
@@ -50,9 +50,9 @@ async fn main() -> Result<()> {
     println!("\n=== 测试 if_not_exist 条件 ===");
     let result = store
         .set(
-            "user:1".to_string(),
-            "Charlie".to_string(),
-            SetOptions::new().with_if_not_exist(),
+            &"user:1".to_string(),
+            &"Charlie".to_string(),
+            &SetOptions::new().with_if_not_exist(),
         )
         .await;
 
@@ -61,7 +61,7 @@ async fn main() -> Result<()> {
         Ok(_) => println!("⚠️  user:1 不存在时才能设置，但设置成功了？"),
     }
 
-    let unchanged_user = store.get("user:1".to_string()).await?;
+    let unchanged_user = store.get(&"user:1".to_string()).await?;
     println!("🔄 user:1 值未改变: {}", unchanged_user);
 
     // 测试 TTL 设置
@@ -69,13 +69,13 @@ async fn main() -> Result<()> {
     use std::time::Duration;
     store
         .set(
-            "temp:session".to_string(),
-            "temporary_data".to_string(),
-            SetOptions::new().with_expiration(Duration::from_secs(60)),
+            &"temp:session".to_string(),
+            &"temporary_data".to_string(),
+            &SetOptions::new().with_expiration(Duration::from_secs(60)),
         )
         .await?;
     println!("⏰ 设置 temp:session，过期时间=60秒");
-    let session = store.get("temp:session".to_string()).await?;
+    let session = store.get(&"temp:session".to_string()).await?;
     println!("📦 temp:session = {}", session);
 
     // 测试批量操作
@@ -96,11 +96,11 @@ async fn main() -> Result<()> {
     ];
 
     let batch_results = store
-        .batch_set(keys.clone(), values, SetOptions::new())
+        .batch_set(&keys, &values, &SetOptions::new())
         .await?;
     println!("📝 批量设置 {} 个键成功", batch_results.len());
 
-    let (batch_values, batch_errors) = store.batch_get(keys.clone()).await?;
+    let (batch_values, batch_errors) = store.batch_get(&keys).await?;
     println!("📖 批量获取 {} 个值", batch_values.len());
     for (key, value) in keys.iter().zip(batch_values.iter()) {
         println!("  {} = {}", key, value.as_ref().unwrap());
@@ -111,11 +111,11 @@ async fn main() -> Result<()> {
 
     // 测试批量删除
     println!("\n=== 测试批量删除 ===");
-    let del_results = store.batch_del(keys.clone()).await?;
+    let del_results = store.batch_del(&keys).await?;
     println!("🗑️  批量删除 {} 个键成功", del_results.len());
 
     // 验证删除结果
-    let (empty_values, not_found_errors) = store.batch_get(keys).await?;
+    let (empty_values, not_found_errors) = store.batch_get(&keys).await?;
     println!("🔍 删除后获取: {} 个值", empty_values.len());
     println!("❌ 删除后错误: {} 个", not_found_errors.len());
 
@@ -127,9 +127,9 @@ async fn main() -> Result<()> {
     for i in 0..test_count {
         store
             .set(
-                format!("perf:key:{}", i),
-                format!("perf:value:{}", i),
-                SetOptions::new(),
+                &format!("perf:key:{}", i),
+                &format!("perf:value:{}", i),
+                &SetOptions::new(),
             )
             .await?;
     }
@@ -143,7 +143,7 @@ async fn main() -> Result<()> {
 
     let start = std::time::Instant::now();
     for i in 0..test_count {
-        let _ = store.get(format!("perf:key:{}", i)).await?;
+        let _ = store.get(&format!("perf:key:{}", i)).await?;
     }
     let get_duration = start.elapsed();
     println!(

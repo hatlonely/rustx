@@ -1,6 +1,0 @@
-{
-    "type": "SafeHashMapStore",
-    "options": {
-        "initial_capacity": 1000
-    }
-}

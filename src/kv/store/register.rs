@@ -4,8 +4,8 @@ use std::hash::Hash;
 use crate::cfg::register_trait;
 
 use super::{
-    HashMapStore, HashMapStoreConfig, RedisStore, RedisStoreConfig, SafeHashMapStore,
-    SafeHashMapStoreConfig, Store,
+    UnsafeHashMapStore, UnsafeHashMapStoreConfig, RedisStore, RedisStoreConfig, RwLockHashMapStore,
+    RwLockHashMapStoreConfig, Store,
 };
 
 /// 注册所有 Store 实现到 cfg 注册表
@@ -19,8 +19,8 @@ use super::{
 /// - `V`: 值类型，需要满足 `Clone + Send + Sync + 'static`
 ///
 /// # 注册的类型
-/// - `HashMapStore` - 基于 HashMap 的非线程安全实现
-/// - `SafeHashMapStore` - 基于 RwLock + HashMap 的线程安全实现
+/// - `UnsafeHashMapStore` - 基于 HashMap 的非线程安全实现
+/// - `RwLockHashMapStore` - 基于 RwLock + HashMap 的线程安全实现
 ///
 /// # 示例
 /// ```ignore
@@ -32,7 +32,7 @@ use super::{
 ///
 /// // 通过配置创建实例
 /// let opts = TypeOptions::from_json(r#"{
-///     "type": "HashMapStore",
+///     "type": "UnsafeHashMapStore",
 ///     "options": { "initial_capacity": 100 }
 /// }"#)?;
 ///
@@ -43,9 +43,9 @@ where
     K: Clone + Send + Sync + Eq + Hash + 'static,
     V: Clone + Send + Sync + 'static,
 {
-    register_trait::<HashMapStore<K, V>, dyn Store<K, V>, HashMapStoreConfig>("HashMapStore")?;
-    register_trait::<SafeHashMapStore<K, V>, dyn Store<K, V>, SafeHashMapStoreConfig>(
-        "SafeHashMapStore",
+    register_trait::<UnsafeHashMapStore<K, V>, dyn Store<K, V>, UnsafeHashMapStoreConfig>("UnsafeHashMapStore")?;
+    register_trait::<RwLockHashMapStore<K, V>, dyn Store<K, V>, RwLockHashMapStoreConfig>(
+        "RwLockHashMapStore",
     )?;
     Ok(())
 }
@@ -118,10 +118,10 @@ mod tests {
     async fn test_register_stores_string_string() -> Result<()> {
         register_hash_stores::<String, String>()?;
 
-        // 测试 HashMapStore
+        // 测试 UnsafeHashMapStore
         let opts = TypeOptions::from_json(
             r#"{
-            "type": "HashMapStore",
+            "type": "UnsafeHashMapStore",
             "options": {}
         }"#,
         )?;
@@ -130,10 +130,10 @@ mod tests {
 
         // 验证 store 可以正常使用
         store
-            .set("key".to_string(), "value".to_string(), SetOptions::new())
+            .set(&"key".to_string(), &"value".to_string(), &SetOptions::new())
             .await
             .unwrap();
-        let value = store.get("key".to_string()).await.unwrap();
+        let value = store.get(&"key".to_string()).await.unwrap();
         assert_eq!(value, "value");
 
         Ok(())
@@ -143,10 +143,10 @@ mod tests {
     async fn test_register_stores_safe_hash_map() -> Result<()> {
         register_hash_stores::<String, i32>()?;
 
-        // 测试 SafeHashMapStore
+        // 测试 RwLockHashMapStore
         let opts = TypeOptions::from_json(
             r#"{
-            "type": "SafeHashMapStore",
+            "type": "RwLockHashMapStore",
             "options": { "initial_capacity": 100 }
         }"#,
         )?;
@@ -154,10 +154,10 @@ mod tests {
         let store: Box<dyn Store<String, i32>> = create_trait_from_type_options(&opts)?;
 
         store
-            .set("count".to_string(), 42, SetOptions::new())
+            .set(&"count".to_string(), &42, &SetOptions::new())
             .await
             .unwrap();
-        let value = store.get("count".to_string()).await.unwrap();
+        let value = store.get(&"count".to_string()).await.unwrap();
         assert_eq!(value, 42);
 
         Ok(())
@@ -171,9 +171,9 @@ mod tests {
         register_hash_stores::<i32, String>()?;
 
         // 验证各类型组合都能正常工作
-        let opts_str_str = TypeOptions::from_json(r#"{"type": "HashMapStore", "options": {}}"#)?;
+        let opts_str_str = TypeOptions::from_json(r#"{"type": "UnsafeHashMapStore", "options": {}}"#)?;
         let opts_str_i64 =
-            TypeOptions::from_json(r#"{"type": "SafeHashMapStore", "options": {}}"#)?;
+            TypeOptions::from_json(r#"{"type": "RwLockHashMapStore", "options": {}}"#)?;
 
         let _store1: Box<dyn Store<String, String>> =
             create_trait_from_type_options(&opts_str_str)?;

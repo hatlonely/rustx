@@ -13,7 +13,7 @@ register_hash_stores::<String, String>()?;
 
 // 2. 通过配置创建 Store
 let opts = TypeOptions::from_json(r#"{
-    "type": "SafeHashMapStore",
+    "type": "RwLockHashMapStore",
     "options": {
         "initial_capacity": 1000
     }
@@ -22,19 +22,19 @@ let opts = TypeOptions::from_json(r#"{
 let store: Box<dyn Store<String, String>> = create_trait_from_type_options(&opts)?;
 
 // 3. 使用 Store
-store.set("key".to_string(), "value".to_string(), SetOptions::new()).await?;
-let value = store.get("key".to_string()).await?;
+store.set(&"key".to_string(), &"value".to_string(), &SetOptions::new()).await?;
+let value = store.get(&"key".to_string()).await?;
 ```
 
 ## Store 配置选项
 
-### HashMapStore - 内存存储（非线程安全）
+### UnsafeHashMapStore - 内存存储（非线程安全）
 
 基于 `UnsafeCell<HashMap>` 实现，**仅适用于写一次读多次的场景**，不支持并发写入。
 
 ```json5
 {
-    "type": "HashMapStore",
+    "type": "UnsafeHashMapStore",
     "options": {
         // 初始容量（可选，默认无）
         "initial_capacity": 1000
@@ -42,13 +42,13 @@ let value = store.get("key".to_string()).await?;
 }
 ```
 
-### SafeHashMapStore - 内存存储（线程安全）
+### RwLockHashMapStore - 内存存储（线程安全）
 
 基于 `RwLock<HashMap>` 实现，支持并发读写。
 
 ```json5
 {
-    "type": "SafeHashMapStore",
+    "type": "RwLockHashMapStore",
     "options": {
         // 初始容量（可选，默认无）
         "initial_capacity": 1000
@@ -129,7 +129,7 @@ let opts = SetOptions::new().with_if_not_exist();
 
 | 函数 | 支持的 Store | 前置条件 |
 |------|-------------|---------|
-| `register_hash_stores<K, V>()` | HashMapStore, SafeHashMapStore | 无 |
+| `register_hash_stores<K, V>()` | UnsafeHashMapStore, RwLockHashMapStore | 无 |
 | `register_redis_stores<K, V>()` | RedisStore | 需先注册序列化器 |
 
 ## 使用示例
@@ -162,12 +162,12 @@ let store: Box<dyn Store<String, String>> = create_trait_from_type_options(&opts
 
 // 使用 Store
 store.set(
-    "user:1".to_string(),
-    "Alice".to_string(),
-    SetOptions::new().with_expiration(Duration::from_secs(3600))
+    &"user:1".to_string(),
+    &"Alice".to_string(),
+    &SetOptions::new().with_expiration(Duration::from_secs(3600))
 ).await?;
 
-let value = store.get("user:1".to_string()).await?;
+let value = store.get(&"user:1".to_string()).await?;
 ```
 
 ### 批量操作示例
@@ -177,11 +177,11 @@ let keys = vec!["key1".to_string(), "key2".to_string()];
 let values = vec!["value1".to_string(), "value2".to_string()];
 
 // 批量设置
-let results = store.batch_set(keys, values, SetOptions::new()).await?;
+let results = store.batch_set(&keys, &values, &SetOptions::new()).await?;
 
 // 批量获取
-let (values, errors) = store.batch_get(keys).await?;
+let (values, errors) = store.batch_get(&keys).await?;
 
 // 批量删除
-let results = store.batch_del(keys).await?;
+let results = store.batch_del(&keys).await?;
 ```

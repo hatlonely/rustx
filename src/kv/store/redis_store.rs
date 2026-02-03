@@ -249,16 +249,16 @@ where
     K: Clone + Send + Sync + 'static,
     V: Clone + Send + Sync + 'static,
 {
-    async fn set(&self, key: K, value: V, options: SetOptions) -> Result<(), KvError> {
+    async fn set(&self, key: &K, value: &V, options: &SetOptions) -> Result<(), KvError> {
         // 1. 序列化键值
         let key_bytes = self
             .key_serializer
-            .serialize(key)
+            .serialize(key.clone())
             .map_err(|e| KvError::Other(format!("Key serialization failed: {}", e)))?;
 
         let val_bytes = self
             .val_serializer
-            .serialize(value)
+            .serialize(value.clone())
             .map_err(|e| KvError::Other(format!("Value serialization failed: {}", e)))?;
 
         // 2. 转换键为字符串（Redis 键必须是字符串）
@@ -311,11 +311,11 @@ where
         Ok(())
     }
 
-    async fn get(&self, key: K) -> Result<V, KvError> {
+    async fn get(&self, key: &K) -> Result<V, KvError> {
         // 1. 序列化键
         let key_bytes = self
             .key_serializer
-            .serialize(key)
+            .serialize(key.clone())
             .map_err(|e| KvError::Other(format!("Key serialization failed: {}", e)))?;
 
         let key_str = String::from_utf8(key_bytes)
@@ -344,11 +344,11 @@ where
         }
     }
 
-    async fn del(&self, key: K) -> Result<(), KvError> {
+    async fn del(&self, key: &K) -> Result<(), KvError> {
         // 1. 序列化键
         let key_bytes = self
             .key_serializer
-            .serialize(key)
+            .serialize(key.clone())
             .map_err(|e| KvError::Other(format!("Key serialization failed: {}", e)))?;
 
         let key_str = String::from_utf8(key_bytes)
@@ -371,9 +371,9 @@ where
 
     async fn batch_set(
         &self,
-        keys: Vec<K>,
-        vals: Vec<V>,
-        options: SetOptions,
+        keys: &[K],
+        vals: &[V],
+        options: &SetOptions,
     ) -> Result<Vec<Result<(), KvError>>, KvError> {
         if keys.len() != vals.len() {
             return Err(KvError::Other(
@@ -383,15 +383,15 @@ where
 
         // 1. 序列化所有键值对
         let mut items = Vec::with_capacity(keys.len());
-        for (key, val) in keys.into_iter().zip(vals.into_iter()) {
+        for (key, val) in keys.iter().zip(vals.iter()) {
             let key_bytes = self
                 .key_serializer
-                .serialize(key)
+                .serialize(key.clone())
                 .map_err(|e| KvError::Other(format!("Key serialization failed: {}", e)))?;
 
             let val_bytes = self
                 .val_serializer
-                .serialize(val)
+                .serialize(val.clone())
                 .map_err(|e| KvError::Other(format!("Value serialization failed: {}", e)))?;
 
             let key_str = String::from_utf8(key_bytes)
@@ -433,7 +433,7 @@ where
 
     async fn batch_get(
         &self,
-        keys: Vec<K>,
+        keys: &[K],
     ) -> Result<(Vec<Option<V>>, Vec<Option<KvError>>), KvError> {
         if keys.is_empty() {
             return Ok((vec![], vec![]));
@@ -444,7 +444,7 @@ where
         for key in keys {
             let key_bytes = self
                 .key_serializer
-                .serialize(key)
+                .serialize(key.clone())
                 .map_err(|e| KvError::Other(format!("Key serialization failed: {}", e)))?;
 
             let key_str = String::from_utf8(key_bytes)
@@ -496,7 +496,7 @@ where
         Ok((values, errors))
     }
 
-    async fn batch_del(&self, keys: Vec<K>) -> Result<Vec<Result<(), KvError>>, KvError> {
+    async fn batch_del(&self, keys: &[K]) -> Result<Vec<Result<(), KvError>>, KvError> {
         if keys.is_empty() {
             return Ok(vec![]);
         }
@@ -506,7 +506,7 @@ where
         for key in keys {
             let key_bytes = self
                 .key_serializer
-                .serialize(key)
+                .serialize(key.clone())
                 .map_err(|e| KvError::Other(format!("Key serialization failed: {}", e)))?;
 
             let key_str = String::from_utf8(key_bytes)
@@ -644,20 +644,20 @@ mod tests {
 
         // 测试 SET 和 GET
         store
-            .set("key1".to_string(), "value1".to_string(), SetOptions::new())
+            .set(&"key1".to_string(), &"value1".to_string(), &SetOptions::new())
             .await
             .unwrap();
 
-        let value = store.get("key1".to_string()).await.unwrap();
+        let value = store.get(&"key1".to_string()).await.unwrap();
         assert_eq!(value, "value1");
 
         // 测试 GET 不存在的键
-        let result = store.get("nonexistent".to_string()).await;
+        let result = store.get(&"nonexistent".to_string()).await;
         assert!(matches!(result, Err(KvError::KeyNotFound)));
 
         // 测试 DEL
-        store.del("key1".to_string()).await.unwrap();
-        let result = store.get("key1".to_string()).await;
+        store.del(&"key1".to_string()).await.unwrap();
+        let result = store.get(&"key1".to_string()).await;
         assert!(matches!(result, Err(KvError::KeyNotFound)));
     }
 
@@ -676,20 +676,20 @@ mod tests {
 
         store
             .set(
-                "ttl_key".to_string(),
-                "ttl_value".to_string(),
-                SetOptions::new(),
+                &"ttl_key".to_string(),
+                &"ttl_value".to_string(),
+                &SetOptions::new(),
             )
             .await
             .unwrap();
 
         // 立即获取应该成功
-        let value = store.get("ttl_key".to_string()).await.unwrap();
+        let value = store.get(&"ttl_key".to_string()).await.unwrap();
         assert_eq!(value, "ttl_value");
 
         // 等待 2 秒后应该过期
         tokio::time::sleep(Duration::from_secs(2)).await;
-        let result = store.get("ttl_key".to_string()).await;
+        let result = store.get(&"ttl_key".to_string()).await;
         assert!(matches!(result, Err(KvError::KeyNotFound)));
     }
 
@@ -708,9 +708,9 @@ mod tests {
         // 第一次设置应该成功
         store
             .set(
-                "nx_key".to_string(),
-                "value1".to_string(),
-                SetOptions::new().with_if_not_exist(),
+                &"nx_key".to_string(),
+                &"value1".to_string(),
+                &SetOptions::new().with_if_not_exist(),
             )
             .await
             .unwrap();
@@ -718,15 +718,15 @@ mod tests {
         // 第二次设置应该失败
         let result = store
             .set(
-                "nx_key".to_string(),
-                "value2".to_string(),
-                SetOptions::new().with_if_not_exist(),
+                &"nx_key".to_string(),
+                &"value2".to_string(),
+                &SetOptions::new().with_if_not_exist(),
             )
             .await;
         assert!(matches!(result, Err(KvError::ConditionFailed)));
 
         // 验证值没有被覆盖
-        let value = store.get("nx_key".to_string()).await.unwrap();
+        let value = store.get(&"nx_key".to_string()).await.unwrap();
         assert_eq!(value, "value1");
     }
 
@@ -748,14 +748,14 @@ mod tests {
         let values = vec![10, 20, 30];
 
         let results = store
-            .batch_set(keys.clone(), values.clone(), SetOptions::new())
+            .batch_set(&keys, &values, &SetOptions::new())
             .await
             .unwrap();
         assert_eq!(results.len(), 3);
         assert!(results.iter().all(|r| r.is_ok()));
 
         // 测试批量获取
-        let (retrieved_values, errors) = store.batch_get(keys.clone()).await.unwrap();
+        let (retrieved_values, errors) = store.batch_get(&keys).await.unwrap();
         assert_eq!(retrieved_values.len(), 3);
         assert_eq!(retrieved_values[0], Some(10));
         assert_eq!(retrieved_values[1], Some(20));
@@ -763,12 +763,12 @@ mod tests {
         assert!(errors.iter().all(|e| e.is_none()));
 
         // 测试批量删除
-        let del_results = store.batch_del(keys.clone()).await.unwrap();
+        let del_results = store.batch_del(&keys).await.unwrap();
         assert_eq!(del_results.len(), 3);
         assert!(del_results.iter().all(|r| r.is_ok()));
 
         // 验证删除后不存在
-        let (empty_values, not_found_errors) = store.batch_get(keys).await.unwrap();
+        let (empty_values, not_found_errors) = store.batch_get(&keys).await.unwrap();
         assert!(empty_values.iter().all(|v| v.is_none()));
         assert!(not_found_errors
             .iter()
@@ -804,11 +804,11 @@ mod tests {
         };
 
         store
-            .set("user:1".to_string(), user.clone(), SetOptions::new())
+            .set(&"user:1".to_string(), &user, &SetOptions::new())
             .await
             .unwrap();
 
-        let retrieved = store.get("user:1".to_string()).await.unwrap();
+        let retrieved = store.get(&"user:1".to_string()).await.unwrap();
         assert_eq!(retrieved, user);
     }
 }

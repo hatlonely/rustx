@@ -5,14 +5,14 @@ use rustx::kv::store::register::register_hash_stores;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 零耦合自动注册！无锁 HashMapStore 完全不需要知道配置系统的存在
+    // 零耦合自动注册！无锁 UnsafeHashMapStore 完全不需要知道配置系统的存在
     register_hash_stores::<String, String>()?;
 
-    println!("=== 无锁 HashMapStore JSON 配置示例 ===");
+    println!("=== 无锁 UnsafeHashMapStore JSON 配置示例 ===");
 
     // JSON 配置示例 - 使用已知的类型名
     let json_config = r#"{
-        "type": "HashMapStore",
+        "type": "UnsafeHashMapStore",
         "options": {
             "initial_capacity": 1000
         }
@@ -22,18 +22,18 @@ async fn main() -> Result<()> {
     println!("🔍 使用的类型名: {}", type_options.type_name);
     let store: Box<dyn Store<String, String>> = create_trait_from_type_options(&type_options)?;
 
-    println!("✅ JSON配置创建无锁HashMapStore成功");
+    println!("✅ JSON配置创建无锁UnsafeHashMapStore成功");
 
     // 测试基本操作
     store
-        .set("key1".to_string(), "val1".to_string(), SetOptions::new())
+        .set(&"key1".to_string(), &"val1".to_string(), &SetOptions::new())
         .await?;
     store
-        .set("key2".to_string(), "val2".to_string(), SetOptions::new())
+        .set(&"key2".to_string(), &"val2".to_string(), &SetOptions::new())
         .await?;
 
-    let val1 = store.get("key1".to_string()).await?;
-    let val2 = store.get("key2".to_string()).await?;
+    let val1 = store.get(&"key1".to_string()).await?;
+    let val2 = store.get(&"key2".to_string()).await?;
     println!("📦 key1 value: {}", val1);
     println!("🔖 key2 value: {}", val2);
 
@@ -41,9 +41,9 @@ async fn main() -> Result<()> {
     println!("\n=== 测试 if_not_exist 条件 ===");
     let result = store
         .set(
-            "key1".to_string(),
-            "new_val1".to_string(),
-            SetOptions::new().with_if_not_exist(),
+            &"key1".to_string(),
+            &"new_val1".to_string(),
+            &SetOptions::new().with_if_not_exist(),
         )
         .await;
 
@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
         Ok(_) => println!("⚠️  key1 不存在时才能设置，但设置成功了？"),
     }
 
-    let unchanged_val = store.get("key1".to_string()).await?;
+    let unchanged_val = store.get(&"key1".to_string()).await?;
     println!("🔄 key1 值未改变: {}", unchanged_val);
 
     // 测试批量操作
@@ -65,21 +65,21 @@ async fn main() -> Result<()> {
     ];
 
     let batch_results = store
-        .batch_set(keys.clone(), values, SetOptions::new())
+        .batch_set(&keys, &values, &SetOptions::new())
         .await?;
     println!("📝 批量设置结果: {:?}", batch_results);
 
-    let (batch_values, batch_errors) = store.batch_get(keys.clone()).await?;
+    let (batch_values, batch_errors) = store.batch_get(&keys).await?;
     println!("📖 批量获取值: {:?}", batch_values);
     println!("⚠️  批量获取错误: {:?}", batch_errors);
 
     // 测试批量删除
     println!("\n=== 测试批量删除 ===");
-    let del_results = store.batch_del(keys.clone()).await?;
+    let del_results = store.batch_del(&keys).await?;
     println!("🗑️  批量删除结果: {:?}", del_results);
 
     // 验证删除结果
-    let (empty_values, not_found_errors) = store.batch_get(keys).await?;
+    let (empty_values, not_found_errors) = store.batch_get(&keys).await?;
     println!("🔍 删除后获取值: {:?}", empty_values);
     println!("❌ 删除后获取错误: {:?}", not_found_errors);
 
@@ -90,9 +90,9 @@ async fn main() -> Result<()> {
     for i in 0..10000 {
         store
             .set(
-                format!("perf_key_{}", i),
-                format!("perf_value_{}", i),
-                SetOptions::new(),
+                &format!("perf_key_{}", i),
+                &format!("perf_value_{}", i),
+                &SetOptions::new(),
             )
             .await?;
     }
@@ -102,7 +102,7 @@ async fn main() -> Result<()> {
 
     let start = std::time::Instant::now();
     for i in 0..10000 {
-        let _ = store.get(format!("perf_key_{}", i)).await?;
+        let _ = store.get(&format!("perf_key_{}", i)).await?;
     }
     let get_duration = start.elapsed();
     println!("🔍 获取 10000 个键值对耗时: {:?}", get_duration);
@@ -111,7 +111,7 @@ async fn main() -> Result<()> {
     store.close().await?;
     println!("🧹 存储已关闭和清理");
 
-    println!("\n🎉 无锁 HashMapStore JSON 配置示例完成!");
+    println!("\n🎉 无锁 UnsafeHashMapStore JSON 配置示例完成!");
     println!("💡 注意：无锁版本适合在单线程或明确线程安全控制的场景下使用，可获得更高性能");
 
     Ok(())

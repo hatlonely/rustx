@@ -34,14 +34,14 @@ async fn main() -> Result<()> {
     // 4. 测试基本操作
     println!("=== 测试基本操作 ===");
     store
-        .set("key1".to_string(), "val1".to_string(), SetOptions::new())
+        .set(&"key1".to_string(), &"val1".to_string(), &SetOptions::new())
         .await?;
     store
-        .set("key2".to_string(), "val2".to_string(), SetOptions::new())
+        .set(&"key2".to_string(), &"val2".to_string(), &SetOptions::new())
         .await?;
 
-    let val1 = store.get("key1".to_string()).await?;
-    let val2 = store.get("key2".to_string()).await?;
+    let val1 = store.get(&"key1".to_string()).await?;
+    let val2 = store.get(&"key2".to_string()).await?;
     println!("key1 value: {}", val1);
     println!("key2 value: {}", val2);
 
@@ -49,9 +49,9 @@ async fn main() -> Result<()> {
     println!("\n=== 测试 if_not_exist 条件 ===");
     let result = store
         .set(
-            "key1".to_string(),
-            "new_val1".to_string(),
-            SetOptions::new().with_if_not_exist(),
+            &"key1".to_string(),
+            &"new_val1".to_string(),
+            &SetOptions::new().with_if_not_exist(),
         )
         .await;
 
@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
         Ok(_) => println!("key1 不存在时才能设置，但设置成功了？"),
     }
 
-    let unchanged_val = store.get("key1".to_string()).await?;
+    let unchanged_val = store.get(&"key1".to_string()).await?;
     println!("key1 值未改变: {}", unchanged_val);
 
     // 6. 测试批量操作
@@ -73,21 +73,21 @@ async fn main() -> Result<()> {
     ];
 
     let batch_results = store
-        .batch_set(keys.clone(), values, SetOptions::new())
+        .batch_set(&keys, &values, &SetOptions::new())
         .await?;
     println!("批量设置结果: {:?}", batch_results);
 
-    let (batch_values, batch_errors) = store.batch_get(keys.clone()).await?;
+    let (batch_values, batch_errors) = store.batch_get(&keys).await?;
     println!("批量获取值: {:?}", batch_values);
     println!("批量获取错误: {:?}", batch_errors);
 
     // 7. 测试批量删除
     println!("\n=== 测试批量删除 ===");
-    let del_results = store.batch_del(keys.clone()).await?;
+    let del_results = store.batch_del(&keys).await?;
     println!("批量删除结果: {:?}", del_results);
 
     // 验证删除结果
-    let (empty_values, not_found_errors) = store.batch_get(keys).await?;
+    let (empty_values, not_found_errors) = store.batch_get(&keys).await?;
     println!("删除后获取值: {:?}", empty_values);
     println!("删除后获取错误: {:?}", not_found_errors);
 
@@ -98,9 +98,9 @@ async fn main() -> Result<()> {
     for i in 0..1000 {
         store
             .set(
-                format!("perf_key_{}", i),
-                format!("perf_value_{}", i),
-                SetOptions::new(),
+                &format!("perf_key_{}", i),
+                &format!("perf_value_{}", i),
+                &SetOptions::new(),
             )
             .await?;
     }
@@ -110,7 +110,7 @@ async fn main() -> Result<()> {
 
     let start = std::time::Instant::now();
     for i in 0..1000 {
-        let _ = store.get(format!("perf_key_{}", i)).await?;
+        let _ = store.get(&format!("perf_key_{}", i)).await?;
     }
     let get_duration = start.elapsed();
     println!("获取 1000 个键值对耗时: {:?}", get_duration);
@@ -121,7 +121,7 @@ async fn main() -> Result<()> {
 
     println!("\n=== 示例完成 ===");
     println!("提示: 修改 examples/configs/kv_store/redis_store.json5 中的 type 字段");
-    println!("      可切换为 \"HashMapStore\" 使用非线程安全版本");
+    println!("      可切换为 \"UnsafeHashMapStore\" 使用非线程安全版本");
 
     Ok(())
 }

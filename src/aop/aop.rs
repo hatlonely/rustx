@@ -540,10 +540,10 @@ impl From<AopCreateConfig> for Aop {
 
 #[cfg(test)]
 mod tests {
-    use serial_test::serial;
     use super::*;
     use crate::cfg::serde_duration::HumanDur;
     use serde::Serialize;
+    use serial_test::serial;
 
     #[test]
     fn test_retry_config_deserialize() {
@@ -1050,7 +1050,10 @@ mod tests {
         // 配置缺失则从环境变量读取
         assert_eq!(env, Some("env-test".to_string()));
         // 配置和环境变量都没有，则自动获取 git tag（如果编译时有 git 信息）
-        assert!(version.is_some(), "version should be auto-populated from git tag");
+        assert!(
+            version.is_some(),
+            "version should be auto-populated from git tag"
+        );
         // 配置值优先
         assert_eq!(cluster, Some("config-cluster".to_string()));
         // host_ip 自动获取
