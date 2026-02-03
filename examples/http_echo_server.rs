@@ -5,8 +5,14 @@
 use axum::{
     extract::Path,
     routing::get,
-    Router,
+    Json, Router,
 };
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct JsonResponse {
+    message: String,
+}
 
 // 简单的 echo 处理器
 async fn echo(Path(message): Path<String>) -> String {
@@ -14,13 +20,23 @@ async fn echo(Path(message): Path<String>) -> String {
     format!("echo: {}", message)
 }
 
+// JSON 处理器
+async fn json_echo(Path(message): Path<String>) -> Json<JsonResponse> {
+    println!("收到 JSON 请求: {}", message);
+    Json(JsonResponse { message })
+}
+
 #[tokio::main]
 async fn main() {
-    let app = Router::new().route("/echo/{message}", get(echo));
+    let app = Router::new()
+        .route("/echo/{message}", get(echo))
+        .route("/json/{message}", get(json_echo));
 
     let addr = "[::1]:3000";
     println!("HTTP Echo 服务端启动，监听: http://{}", addr);
-    println!("访问示例: http://{}/echo/hello-world", addr);
+    println!("访问示例:");
+    println!("  - http://{}/echo/hello-world", addr);
+    println!("  - http://{}/json/hello-world", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
