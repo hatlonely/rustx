@@ -42,6 +42,13 @@ pub struct OperationLabel {
 }
 
 /// 从 HashMap 提取固定的标签字段
+///
+/// 优先级：
+/// - service: 配置值 > 环境变量 > 二进制文件名 > None
+/// - version: 配置值 > 环境变量 > 编译时 git tag > None
+/// - env/cluster: 配置值 > 环境变量 > None
+///
+/// 环境变量命名规范：AOP_<字段名大写>
 pub fn extract_fixed_labels(
     labels: &HashMap<String, String>,
 ) -> (
@@ -50,10 +57,34 @@ pub fn extract_fixed_labels(
     Option<String>,
     Option<String>,
 ) {
-    let service = labels.get("service").cloned();
-    let env = labels.get("env").cloned();
-    let version = labels.get("version").cloned();
-    let cluster = labels.get("cluster").cloned();
+    let service = labels
+        .get("service")
+        .cloned()
+        .or_else(|| std::env::var("AOP_SERVICE").ok())
+        .or_else(|| {
+            // 自动获取二进制文件名作为 service
+            std::env::current_exe().ok().and_then(|path| {
+                path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_string())
+            })
+        });
+    let env = labels
+        .get("env")
+        .cloned()
+        .or_else(|| std::env::var("AOP_ENV").ok());
+    let version = labels
+        .get("version")
+        .cloned()
+        .or_else(|| std::env::var("AOP_VERSION").ok())
+        .or_else(|| {
+            // 使用编译时嵌入的 git tag
+            option_env!("GIT_VERSION").map(|s| s.to_string())
+        });
+    let cluster = labels
+        .get("cluster")
+        .cloned()
+        .or_else(|| std::env::var("AOP_CLUSTER").ok());
     (service, env, version, cluster)
 }
 
@@ -72,6 +103,50 @@ pub struct AopCreateConfig {
 
     /// Metrics 配置
     pub metrics: Option<MetricsConfig>,
+}
+
+/// Retry 配置
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, SmartDefault, Validate, PartialEq)]
+#[serde(default)]
+pub struct RetryConfig {
+    /// 最大重试次数
+    #[default = 3]
+    #[garde(range(min = 1, max = 100))]
+    pub max_times: usize,
+
+    /// 退避策略: "constant" / "exponential" / "fibonacci"
+    #[default = "constant"]
+    #[garde(pattern("constant|exponential|fibonacci"))]
+    pub strategy: String,
+
+    /// 延迟（用于 constant 策略）
+    #[serde_as(as = "HumanDur")]
+    #[default(Duration::from_secs(1))]
+    #[garde(skip)]
+    pub delay: Duration,
+
+    /// 最小延迟（用于 exponential/fibonacci 策略）
+    #[serde_as(as = "HumanDur")]
+    #[default(Duration::from_secs(1))]
+    #[garde(skip)]
+    pub min_delay: Duration,
+
+    /// 最大延迟
+    #[serde_as(as = "HumanDur")]
+    #[default(Duration::from_secs(60))]
+    #[garde(skip)]
+    pub max_delay: Duration,
+
+    /// 退避因子（用于 exponential 策略）
+    #[default = 2.0]
+    #[garde(skip)]
+    pub factor: f32,
+
+    /// 抖动（jitter）：是否在延迟基础上添加随机抖动
+    #[default = false]
+    #[garde(skip)]
+    pub jitter: bool,
 }
 
 /// Logging 配置
@@ -118,52 +193,14 @@ pub struct MetricsConfig {
     pub prefix: String,
 
     /// 常量 Labels（会应用到所有 metric）
+    ///
+    /// 支持的常量标签：
+    /// - `service`: 服务名称（优先级: 配置值 > 环境变量 AOP_SERVICE > 二进制文件名）
+    /// - `env`: 部署环境（如 dev/test/prod）（优先级: 配置值 > 环境变量 AOP_ENV）
+    /// - `version`: 服务版本（优先级: 配置值 > 环境变量 AOP_VERSION > 编译时 git tag）
+    /// - `cluster`: 集群名称（优先级: 配置值 > 环境变量 AOP_CLUSTER）
     #[garde(skip)]
     pub labels: Option<HashMap<String, String>>,
-}
-
-/// Retry 配置
-#[serde_as]
-#[derive(Debug, Clone, Deserialize, SmartDefault, Validate, PartialEq)]
-#[serde(default)]
-pub struct RetryConfig {
-    /// 最大重试次数
-    #[default = 3]
-    #[garde(range(min = 1, max = 100))]
-    pub max_times: usize,
-
-    /// 退避策略: "constant" / "exponential" / "fibonacci"
-    #[default = "constant"]
-    #[garde(pattern("constant|exponential|fibonacci"))]
-    pub strategy: String,
-
-    /// 延迟（用于 constant 策略）
-    #[serde_as(as = "HumanDur")]
-    #[default(Duration::from_secs(1))]
-    #[garde(skip)]
-    pub delay: Duration,
-
-    /// 最小延迟（用于 exponential/fibonacci 策略）
-    #[serde_as(as = "HumanDur")]
-    #[default(Duration::from_secs(1))]
-    #[garde(skip)]
-    pub min_delay: Duration,
-
-    /// 最大延迟
-    #[serde_as(as = "HumanDur")]
-    #[default(Duration::from_secs(60))]
-    #[garde(skip)]
-    pub max_delay: Duration,
-
-    /// 退避因子（用于 exponential 策略）
-    #[default = 2.0]
-    #[garde(skip)]
-    pub factor: f32,
-
-    /// 抖动（jitter）：是否在延迟基础上添加随机抖动
-    #[default = false]
-    #[garde(skip)]
-    pub jitter: bool,
 }
 
 /// AOP 配置
@@ -450,6 +487,7 @@ impl From<AopCreateConfig> for Aop {
 
 #[cfg(test)]
 mod tests {
+    use serial_test::serial;
     use super::*;
     use crate::cfg::serde_duration::HumanDur;
     use serde::Serialize;
@@ -868,5 +906,101 @@ mod tests {
         let config_none = TestConfig { delay: None };
         let json_none = serde_json::to_string(&config_none).unwrap();
         assert!(json_none.contains("null"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_extract_fixed_labels_from_config() {
+        use std::collections::HashMap;
+
+        // 确保环境变量是干净的
+        std::env::remove_var("AOP_SERVICE");
+        std::env::remove_var("AOP_ENV");
+        std::env::remove_var("AOP_VERSION");
+        std::env::remove_var("AOP_CLUSTER");
+
+        let mut labels = HashMap::new();
+        labels.insert("service".to_string(), "my-service".to_string());
+        labels.insert("env".to_string(), "prod".to_string());
+        labels.insert("version".to_string(), "1.0.0".to_string());
+        labels.insert("cluster".to_string(), "cluster-1".to_string());
+
+        let (service, env, version, cluster) = extract_fixed_labels(&labels);
+
+        assert_eq!(service, Some("my-service".to_string()));
+        assert_eq!(env, Some("prod".to_string()));
+        assert_eq!(version, Some("1.0.0".to_string()));
+        assert_eq!(cluster, Some("cluster-1".to_string()));
+    }
+
+    #[test]
+    #[serial]
+    fn test_extract_fixed_labels_from_env() {
+        use std::collections::HashMap;
+
+        // 确保环境变量是干净的
+        std::env::remove_var("AOP_SERVICE");
+        std::env::remove_var("AOP_ENV");
+        std::env::remove_var("AOP_VERSION");
+        std::env::remove_var("AOP_CLUSTER");
+
+        // 设置环境变量
+        std::env::set_var("AOP_SERVICE", "env-service");
+        std::env::set_var("AOP_ENV", "test");
+        std::env::set_var("AOP_VERSION", "2.0.0");
+        std::env::set_var("AOP_CLUSTER", "cluster-2");
+
+        let labels = HashMap::new();
+        let (service, env, version, cluster) = extract_fixed_labels(&labels);
+
+        assert_eq!(service, Some("env-service".to_string()));
+        assert_eq!(env, Some("test".to_string()));
+        assert_eq!(version, Some("2.0.0".to_string()));
+        assert_eq!(cluster, Some("cluster-2".to_string()));
+
+        // 清理环境变量
+        std::env::remove_var("AOP_SERVICE");
+        std::env::remove_var("AOP_ENV");
+        std::env::remove_var("AOP_VERSION");
+        std::env::remove_var("AOP_CLUSTER");
+    }
+
+    #[test]
+    #[serial]
+    fn test_extract_fixed_labels_priority() {
+        use std::collections::HashMap;
+
+        // 确保环境变量是干净的
+        std::env::remove_var("AOP_SERVICE");
+        std::env::remove_var("AOP_ENV");
+        std::env::remove_var("AOP_VERSION");
+        std::env::remove_var("AOP_CLUSTER");
+
+        // 设置环境变量
+        std::env::set_var("AOP_SERVICE", "env-service");
+        std::env::set_var("AOP_ENV", "env-test");
+
+        let mut labels = HashMap::new();
+        labels.insert("service".to_string(), "config-service".to_string());
+        // env 从配置中缺失，应该从环境变量读取
+        // version 配置和环境变量都没有
+        // cluster 从配置中提供
+
+        labels.insert("cluster".to_string(), "config-cluster".to_string());
+
+        let (service, env, version, cluster) = extract_fixed_labels(&labels);
+
+        // 配置值优先于环境变量
+        assert_eq!(service, Some("config-service".to_string()));
+        // 配置缺失则从环境变量读取
+        assert_eq!(env, Some("env-test".to_string()));
+        // 配置和环境变量都没有，则自动获取 git tag（如果编译时有 git 信息）
+        assert!(version.is_some(), "version should be auto-populated from git tag");
+        // 配置值优先
+        assert_eq!(cluster, Some("config-cluster".to_string()));
+
+        // 清理环境变量
+        std::env::remove_var("AOP_SERVICE");
+        std::env::remove_var("AOP_ENV");
     }
 }

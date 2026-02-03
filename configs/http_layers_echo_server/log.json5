@@ -1,0 +1,28 @@
+{
+  // 默认 logger 配置
+  default: {
+    level: "info",
+    formatter: {
+      type: "TextFormatter",
+      options: {}
+    },
+    appender: {
+      type: "ConsoleAppender",
+      options: {}
+    }
+  },
+  // 命名 logger 配置
+  loggers: {
+    "redis_aop": {
+      level: "info",
+      formatter: {
+        type: "TextFormatter",
+        options: {}
+      },
+      appender: {
+        type: "ConsoleAppender",
+        options: {}
+      }
+    }
+  }
+}

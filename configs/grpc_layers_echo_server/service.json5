@@ -1,0 +1,6 @@
+{
+  // 使用 Reference 模式引用全局注册的 redis_aop
+  redis_aop: {
+    $instance: "redis_aop"
+  }
+}

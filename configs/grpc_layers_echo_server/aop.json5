@@ -1,0 +1,60 @@
+{
+  // 默认 aop 配置
+  default: {},
+  // 命名 aop 配置
+  aops: {
+    // 为 redis_aop 配置专用的 aop 切面
+    redis_aop: {
+      // Logging 配置
+      logging: {
+        logger: {
+          $instance: "redis_aop"
+        },
+        info_sample_rate: 1,
+        warn_sample_rate: 1
+      },
+      // Retry 配置
+      retry: {
+        max_times: 3,
+        strategy: "exponential",
+        min_delay: "50ms",
+        max_delay: "500ms",
+        factor: 2.0,
+        jitter: true
+      },
+      // Tracing 配置
+      tracing: {
+        name: "redis_aop",
+        with_args: true
+      },
+      // Metrics 配置
+      metrics: {
+        prefix: "redis_aop",
+        labels: {
+          service: "grpc-echo",
+          instance: "echo-1"
+        }
+      }
+    }
+  },
+  // 全局 tracing 配置
+  global_tracing: {
+    enabled: true,
+    service_name: "grpc-echo-server",
+    sample_rate: 1,
+    exporter: {
+      type: "otlp",
+      endpoint: "http://localhost:4317",
+      timeout: "10s"
+    },
+    subscriber: {
+      log_level: "info",
+      with_fmt_layer: true
+    }
+  },
+  // 全局 metrics 配置
+  global_metrics: {
+    port: 9091,
+    path: "/metrics"
+  }
+}
