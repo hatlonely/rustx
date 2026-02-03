@@ -15,6 +15,7 @@ use prometheus_client::{
 use serde::Deserialize;
 use smart_default::SmartDefault;
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -29,6 +30,7 @@ pub struct MetricLabels {
     pub env: Option<String>,
     pub version: Option<String>,
     pub cluster: Option<String>,
+    pub host_ip: Option<String>,
 }
 
 /// 仅包含 operation 的标签（用于 retry_count 和 duration）
@@ -39,6 +41,47 @@ pub struct OperationLabel {
     pub env: Option<String>,
     pub version: Option<String>,
     pub cluster: Option<String>,
+    pub host_ip: Option<String>,
+}
+
+/// 获取本地私网 IP 地址
+///
+/// 优先返回第一个 IPv4 私网地址（10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16）
+/// 如果没有找到私网地址，则返回第一个非回环的 IPv4 地址
+/// 如果都没有，返回 None
+fn get_local_private_ip() -> Option<String> {
+    use local_ip_address::local_ip;
+
+    // 尝试获取本地 IP
+    if let Ok(ip) = local_ip() {
+        // 检查是否是 IPv4 地址
+        if ip.is_ipv4() {
+            let octets = match ip {
+                IpAddr::V4(v4) => v4.octets(),
+                IpAddr::V6(_) => return None,
+            };
+
+            // 10.0.0.0/8
+            if octets[0] == 10 {
+                return Some(ip.to_string());
+            }
+            // 172.16.0.0/12
+            if octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31 {
+                return Some(ip.to_string());
+            }
+            // 192.168.0.0/16
+            if octets[0] == 192 && octets[1] == 168 {
+                return Some(ip.to_string());
+            }
+
+            // 如果不是私网地址，检查是否是回环地址
+            if !ip.is_loopback() {
+                return Some(ip.to_string());
+            }
+        }
+    }
+
+    None
 }
 
 /// 从 HashMap 提取固定的标签字段
@@ -47,11 +90,13 @@ pub struct OperationLabel {
 /// - service: 配置值 > 环境变量 > 二进制文件名 > None
 /// - version: 配置值 > 环境变量 > 编译时 git tag > None
 /// - env/cluster: 配置值 > 环境变量 > None
+/// - host_ip: 配置值 > 环境变量 > 自动获取（本地私网 IP）> None
 ///
 /// 环境变量命名规范：AOP_<字段名大写>
 pub fn extract_fixed_labels(
     labels: &HashMap<String, String>,
 ) -> (
+    Option<String>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -85,7 +130,12 @@ pub fn extract_fixed_labels(
         .get("cluster")
         .cloned()
         .or_else(|| std::env::var("AOP_CLUSTER").ok());
-    (service, env, version, cluster)
+    let host_ip = labels
+        .get("host_ip")
+        .cloned()
+        .or_else(|| std::env::var("AOP_HOST_IP").ok())
+        .or_else(get_local_private_ip);
+    (service, env, version, cluster, host_ip)
 }
 
 /// AOP 创建配置（用于创建新的 AOP 实例）
@@ -199,6 +249,7 @@ pub struct MetricsConfig {
     /// - `env`: 部署环境（如 dev/test/prod）（优先级: 配置值 > 环境变量 AOP_ENV）
     /// - `version`: 服务版本（优先级: 配置值 > 环境变量 AOP_VERSION > 编译时 git tag）
     /// - `cluster`: 集群名称（优先级: 配置值 > 环境变量 AOP_CLUSTER）
+    /// - `host_ip`: 主机 IP 地址（优先级: 配置值 > 环境变量 AOP_HOST_IP > 自动获取本地私网 IP）
     #[garde(skip)]
     pub labels: Option<HashMap<String, String>>,
 }
@@ -351,13 +402,14 @@ impl Aop {
             use std::collections::HashMap;
             let empty_labels = HashMap::new();
             let labels_map = metric_cfg.labels.as_ref().unwrap_or(&empty_labels);
-            let (service, env, version, cluster) = extract_fixed_labels(labels_map);
+            let (service, env, version, cluster, host_ip) = extract_fixed_labels(labels_map);
             let default_operation_label = Some(OperationLabel {
                 operation: String::new(),
                 service: service.clone(),
                 env: env.clone(),
                 version: version.clone(),
                 cluster: cluster.clone(),
+                host_ip: host_ip.clone(),
             });
             let default_metric_labels = Some(MetricLabels {
                 operation: String::new(),
@@ -366,6 +418,7 @@ impl Aop {
                 env,
                 version,
                 cluster,
+                host_ip,
             });
 
             (
@@ -925,12 +978,13 @@ mod tests {
         labels.insert("version".to_string(), "1.0.0".to_string());
         labels.insert("cluster".to_string(), "cluster-1".to_string());
 
-        let (service, env, version, cluster) = extract_fixed_labels(&labels);
+        let (service, env, version, cluster, host_ip) = extract_fixed_labels(&labels);
 
         assert_eq!(service, Some("my-service".to_string()));
         assert_eq!(env, Some("prod".to_string()));
         assert_eq!(version, Some("1.0.0".to_string()));
         assert_eq!(cluster, Some("cluster-1".to_string()));
+        assert!(host_ip.is_some(), "host_ip should be auto-populated");
     }
 
     #[test]
@@ -951,12 +1005,13 @@ mod tests {
         std::env::set_var("AOP_CLUSTER", "cluster-2");
 
         let labels = HashMap::new();
-        let (service, env, version, cluster) = extract_fixed_labels(&labels);
+        let (service, env, version, cluster, host_ip) = extract_fixed_labels(&labels);
 
         assert_eq!(service, Some("env-service".to_string()));
         assert_eq!(env, Some("test".to_string()));
         assert_eq!(version, Some("2.0.0".to_string()));
         assert_eq!(cluster, Some("cluster-2".to_string()));
+        assert!(host_ip.is_some(), "host_ip should be auto-populated");
 
         // 清理环境变量
         std::env::remove_var("AOP_SERVICE");
@@ -988,7 +1043,7 @@ mod tests {
 
         labels.insert("cluster".to_string(), "config-cluster".to_string());
 
-        let (service, env, version, cluster) = extract_fixed_labels(&labels);
+        let (service, env, version, cluster, host_ip) = extract_fixed_labels(&labels);
 
         // 配置值优先于环境变量
         assert_eq!(service, Some("config-service".to_string()));
@@ -998,9 +1053,60 @@ mod tests {
         assert!(version.is_some(), "version should be auto-populated from git tag");
         // 配置值优先
         assert_eq!(cluster, Some("config-cluster".to_string()));
+        // host_ip 自动获取
+        assert!(host_ip.is_some(), "host_ip should be auto-populated");
 
         // 清理环境变量
         std::env::remove_var("AOP_SERVICE");
         std::env::remove_var("AOP_ENV");
+    }
+
+    #[test]
+    #[serial]
+    fn test_extract_fixed_labels_with_host_ip() {
+        use std::collections::HashMap;
+
+        // 确保环境变量是干净的
+        std::env::remove_var("AOP_SERVICE");
+        std::env::remove_var("AOP_HOST_IP");
+
+        // 测试从配置中读取 host_ip
+        let mut labels = HashMap::new();
+        labels.insert("host_ip".to_string(), "192.168.1.100".to_string());
+
+        let (_, _, _, _, host_ip) = extract_fixed_labels(&labels);
+        assert_eq!(host_ip, Some("192.168.1.100".to_string()));
+
+        // 清理
+        std::env::remove_var("AOP_HOST_IP");
+    }
+
+    #[test]
+    #[serial]
+    fn test_extract_fixed_labels_host_ip_priority() {
+        use std::collections::HashMap;
+
+        // 确保环境变量是干净的
+        std::env::remove_var("AOP_SERVICE");
+        std::env::remove_var("AOP_HOST_IP");
+
+        // 设置环境变量
+        std::env::set_var("AOP_HOST_IP", "10.0.0.5");
+
+        // 配置值优先于环境变量
+        let mut labels = HashMap::new();
+        labels.insert("host_ip".to_string(), "172.16.0.10".to_string());
+
+        let (_, _, _, _, host_ip) = extract_fixed_labels(&labels);
+        assert_eq!(host_ip, Some("172.16.0.10".to_string()));
+
+        // 配置缺失时从环境变量读取
+        let labels = HashMap::new();
+        let (_, _, _, _, host_ip) = extract_fixed_labels(&labels);
+        assert_eq!(host_ip, Some("10.0.0.5".to_string()));
+
+        // 清理环境变量
+        std::env::remove_var("AOP_SERVICE");
+        std::env::remove_var("AOP_HOST_IP");
     }
 }

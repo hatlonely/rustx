@@ -84,6 +84,7 @@ tracing-opentelemetry = "0.32"
 prometheus-client = "0.22"
 prometheus = "0.13"
 axum-prometheus = "0.7"
+local-ip-address = "0.6"
 
 [build-dependencies]
 prost-build = "0.14"
