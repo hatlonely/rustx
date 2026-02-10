@@ -70,6 +70,42 @@ let value = store.get(&"key".to_string()).await?;
 }
 ```
 
+### LoadableSyncStore - 可加载数据的同步存储装饰器
+
+通过 Loader 从外部数据源（文件等）加载数据到内存 Store。支持两种加载策略：
+- **inplace**：增量更新，直接在当前 store 上执行 set/del
+- **replace**：全量替换，创建新 store 加载完数据后原子替换旧 store（使用 `arc-swap` 实现无锁切换）
+
+**使用前需注册**：`register_parsers`、`register_loaders`、`register_sync_stores`。
+
+```json5
+{
+    "type": "LoadableSyncStore",
+    "options": {
+        // 底层 SyncStore 配置（支持所有内存 Store 类型）
+        "store": {
+            "type": "RwLockHashMapStore",
+            "options": {
+                "initial_capacity": 1000
+            }
+        },
+        // Loader 配置（数据来源）
+        "loader": {
+            "type": "KvFileLoader",
+            "options": {
+                "file_path": "/path/to/data.txt",
+                "parser": {
+                    "type": "LineParser",
+                    "options": { "separator": "\t" }
+                }
+            }
+        },
+        // 加载策略: "inplace"（增量，默认）或 "replace"（全量替换）
+        "load_strategy": "inplace"
+    }
+}
+```
+
 ### RedisStore - Redis 分布式存储
 
 基于 Redis 实现的分布式 KV 存储，支持 TTL 和批量操作。**使用前需先注册序列化器**。
@@ -143,7 +179,8 @@ let opts = SetOptions::new().with_if_not_exist();
 
 | 函数 | 支持的 Store | 前置条件 |
 |------|-------------|---------|
-| `register_hash_stores<K, V>()` | UnsafeHashMapStore, RwLockHashMapStore, DashMapStore | 无 |
+| `register_hash_stores<K, V>()` | UnsafeHashMapStore, RwLockHashMapStore, DashMapStore, LoadableSyncStore | 无（LoadableSyncStore 使用时需先注册 Parser、Loader） |
+| `register_sync_stores<K, V>()` | 同上（注册为 `dyn SyncStore`） | 同上 |
 | `register_redis_stores<K, V>()` | RedisStore | 需先注册序列化器 |
 
 ## 使用示例

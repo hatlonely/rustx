@@ -4,8 +4,9 @@ use std::hash::Hash;
 use crate::cfg::register_trait;
 
 use super::{
-    DashMapStore, DashMapStoreConfig, UnsafeHashMapStore, UnsafeHashMapStoreConfig, RedisStore,
-    RedisStoreConfig, RwLockHashMapStore, RwLockHashMapStoreConfig, Store,
+    DashMapStore, DashMapStoreConfig, LoadableSyncStore, LoadableSyncStoreConfig,
+    UnsafeHashMapStore, UnsafeHashMapStoreConfig, RedisStore,
+    RedisStoreConfig, RwLockHashMapStore, RwLockHashMapStoreConfig, Store, SyncStore,
 };
 
 /// 注册所有 Store 实现到 cfg 注册表
@@ -50,6 +51,31 @@ where
     )?;
     register_trait::<DashMapStore<K, V>, dyn Store<K, V>, DashMapStoreConfig>(
         "DashMapStore",
+    )?;
+    register_trait::<LoadableSyncStore<K, V>, dyn Store<K, V>, LoadableSyncStoreConfig>(
+        "LoadableSyncStore",
+    )?;
+    Ok(())
+}
+
+/// 注册所有 SyncStore 实现到 cfg 注册表
+///
+/// 为指定的 K, V 类型组合注册所有可用的 SyncStore 实现。
+/// 用于 LoadableSyncStore 等需要同步接口的场景。
+pub fn register_sync_stores<K, V>() -> Result<()>
+where
+    K: Clone + Send + Sync + Eq + Hash + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+    register_trait::<UnsafeHashMapStore<K, V>, dyn SyncStore<K, V>, UnsafeHashMapStoreConfig>("UnsafeHashMapStore")?;
+    register_trait::<RwLockHashMapStore<K, V>, dyn SyncStore<K, V>, RwLockHashMapStoreConfig>(
+        "RwLockHashMapStore",
+    )?;
+    register_trait::<DashMapStore<K, V>, dyn SyncStore<K, V>, DashMapStoreConfig>(
+        "DashMapStore",
+    )?;
+    register_trait::<LoadableSyncStore<K, V>, dyn SyncStore<K, V>, LoadableSyncStoreConfig>(
+        "LoadableSyncStore",
     )?;
     Ok(())
 }

@@ -214,6 +214,16 @@ where
     }
 }
 
+impl<K, V> From<Box<UnsafeHashMapStore<K, V>>> for Box<dyn SyncStore<K, V>>
+where
+    K: Clone + Send + Sync + Eq + Hash + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+    fn from(source: Box<UnsafeHashMapStore<K, V>>) -> Self {
+        source as Box<dyn SyncStore<K, V>>
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

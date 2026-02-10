@@ -13,6 +13,7 @@
     - 必须使用 SmartDefault 设置默认值：配置结构体应使用 `#[derive(SmartDefault)]` 并配合 `#[serde(default)]`，为常用配置项设置合理的默认值
     - 必须使用 garde 为设置校验规则：配置结构体应该使用 `#[garde(length(min = 1))]` 为配置项设置校验规则
 - 构造方法统一使用 `new` 方法，以 `Config` 结构体作为唯一参数，根据是否会返回错误，返回 `Self` 或者 `Result<Self, Error>`
+- 如果配置可能不合法，统一使用 garde 来校验 `Config` 结构体
 - 需要为类实现 From trait，优先使用 `impl_from!` 和 `impl_box_from!` 宏，例如 `impl_from!(FileSourceConfig => FileSource);`, `impl_box_from!(FileSource => dyn ConfigSource);`
 - trait 实现，这里的 trait 主要指我们自己定义的 trait，并非语言提供的通用 trait
     - trait 实现类必须以 trait 名字作为后缀
