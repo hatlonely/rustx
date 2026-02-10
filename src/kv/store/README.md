@@ -56,6 +56,20 @@ let value = store.get(&"key".to_string()).await?;
 }
 ```
 
+### DashMapStore - 内存存储（线程安全，高并发优化）
+
+基于 `DashMap` 实现，使用分片锁技术，高并发读写场景性能优于 RwLockHashMapStore。
+
+```json5
+{
+    "type": "DashMapStore",
+    "options": {
+        // 初始容量（可选，默认无）
+        "initial_capacity": 1000
+    }
+}
+```
+
 ### RedisStore - Redis 分布式存储
 
 基于 Redis 实现的分布式 KV 存储，支持 TTL 和批量操作。**使用前需先注册序列化器**。
@@ -129,7 +143,7 @@ let opts = SetOptions::new().with_if_not_exist();
 
 | 函数 | 支持的 Store | 前置条件 |
 |------|-------------|---------|
-| `register_hash_stores<K, V>()` | UnsafeHashMapStore, RwLockHashMapStore | 无 |
+| `register_hash_stores<K, V>()` | UnsafeHashMapStore, RwLockHashMapStore, DashMapStore | 无 |
 | `register_redis_stores<K, V>()` | RedisStore | 需先注册序列化器 |
 
 ## 使用示例

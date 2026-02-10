@@ -4,8 +4,8 @@ use std::hash::Hash;
 use crate::cfg::register_trait;
 
 use super::{
-    UnsafeHashMapStore, UnsafeHashMapStoreConfig, RedisStore, RedisStoreConfig, RwLockHashMapStore,
-    RwLockHashMapStoreConfig, Store,
+    DashMapStore, DashMapStoreConfig, UnsafeHashMapStore, UnsafeHashMapStoreConfig, RedisStore,
+    RedisStoreConfig, RwLockHashMapStore, RwLockHashMapStoreConfig, Store,
 };
 
 /// 注册所有 Store 实现到 cfg 注册表
@@ -21,6 +21,7 @@ use super::{
 /// # 注册的类型
 /// - `UnsafeHashMapStore` - 基于 HashMap 的非线程安全实现
 /// - `RwLockHashMapStore` - 基于 RwLock + HashMap 的线程安全实现
+/// - `DashMapStore` - 基于 DashMap 的线程安全实现（高并发性能更好）
 ///
 /// # 示例
 /// ```ignore
@@ -32,7 +33,7 @@ use super::{
 ///
 /// // 通过配置创建实例
 /// let opts = TypeOptions::from_json(r#"{
-///     "type": "UnsafeHashMapStore",
+///     "type": "DashMapStore",
 ///     "options": { "initial_capacity": 100 }
 /// }"#)?;
 ///
@@ -46,6 +47,9 @@ where
     register_trait::<UnsafeHashMapStore<K, V>, dyn Store<K, V>, UnsafeHashMapStoreConfig>("UnsafeHashMapStore")?;
     register_trait::<RwLockHashMapStore<K, V>, dyn Store<K, V>, RwLockHashMapStoreConfig>(
         "RwLockHashMapStore",
+    )?;
+    register_trait::<DashMapStore<K, V>, dyn Store<K, V>, DashMapStoreConfig>(
+        "DashMapStore",
     )?;
     Ok(())
 }
@@ -147,6 +151,30 @@ mod tests {
         let opts = TypeOptions::from_json(
             r#"{
             "type": "RwLockHashMapStore",
+            "options": { "initial_capacity": 100 }
+        }"#,
+        )?;
+
+        let store: Box<dyn Store<String, i32>> = create_trait_from_type_options(&opts)?;
+
+        store
+            .set(&"count".to_string(), &42, &SetOptions::new())
+            .await
+            .unwrap();
+        let value = store.get(&"count".to_string()).await.unwrap();
+        assert_eq!(value, 42);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_register_dash_map_store() -> Result<()> {
+        register_hash_stores::<String, i32>()?;
+
+        // 测试 DashMapStore
+        let opts = TypeOptions::from_json(
+            r#"{
+            "type": "DashMapStore",
             "options": { "initial_capacity": 100 }
         }"#,
         )?;

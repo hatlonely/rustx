@@ -1,0 +1,10 @@
+{
+    // DashMapStore 类型标识
+    type: "DashMapStore",
+    options: {
+        // 初始容量（可选）
+        // 设置 Map 的初始容量以减少扩容次数
+        // 适用于预知数据量的场景，可提升性能
+        initial_capacity: 500,
+    }
+}
