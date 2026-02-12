@@ -223,6 +223,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kv::store::common_tests::*;
     use crate::kv::loader::register::register_loaders;
     use crate::kv::parser::register_parsers;
     use crate::kv::store::register::register_sync_stores;
@@ -233,6 +234,13 @@ mod tests {
         let _ = register_parsers::<String, String>();
         let _ = register_loaders::<String, String>();
         let _ = register_sync_stores::<String, String>();
+        Ok(())
+    }
+
+    fn setup_i32() -> Result<(), anyhow::Error> {
+        let _ = register_parsers::<String, i32>();
+        let _ = register_loaders::<String, i32>();
+        let _ = register_sync_stores::<String, i32>();
         Ok(())
     }
 
@@ -270,6 +278,127 @@ mod tests {
         ))
         .unwrap()
     }
+
+    // 辅助函数：创建用于测试的 store
+    fn make_store_string() -> Result<LoadableSyncStore<String, String>, anyhow::Error> {
+        setup()?;
+        let temp_file = create_temp_file(&[]);
+        let config = make_config("RwLockHashMapStore", temp_file.path().to_str().unwrap(), "inplace");
+        LoadableSyncStore::new(config)
+    }
+
+    fn make_store_i32() -> Result<LoadableSyncStore<String, i32>, anyhow::Error> {
+        setup_i32()?;
+        let temp_file = create_temp_file(&[]);
+        let config = make_config("RwLockHashMapStore", temp_file.path().to_str().unwrap(), "inplace");
+        LoadableSyncStore::new(config)
+    }
+
+    // ===== 公共测试 - 异步接口 =====
+
+    #[tokio::test]
+    async fn test_store_set() -> Result<(), anyhow::Error> {
+        let store = make_store_string()?;
+        test_set(store).await;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_store_get() -> Result<(), anyhow::Error> {
+        let store = make_store_string()?;
+        test_get(store).await;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_store_del() -> Result<(), anyhow::Error> {
+        let store = make_store_string()?;
+        test_del(store).await;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_store_batch_set() -> Result<(), anyhow::Error> {
+        let store = make_store_i32()?;
+        test_batch_set(store).await;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_store_batch_get() -> Result<(), anyhow::Error> {
+        let store = make_store_i32()?;
+        test_batch_get(store).await;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_store_batch_del() -> Result<(), anyhow::Error> {
+        let store = make_store_i32()?;
+        test_batch_del(store).await;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_store_close() -> Result<(), anyhow::Error> {
+        let store = make_store_i32()?;
+        test_close(store).await;
+        Ok(())
+    }
+
+    // ===== 公共测试 - 同步接口 =====
+
+    #[test]
+    fn test_store_set_sync() -> Result<(), anyhow::Error> {
+        let store = make_store_string()?;
+        test_set_sync(store);
+        Ok(())
+    }
+
+    #[test]
+    fn test_store_get_sync() -> Result<(), anyhow::Error> {
+        let store = make_store_string()?;
+        test_get_sync(store);
+        Ok(())
+    }
+
+    #[test]
+    fn test_store_del_sync() -> Result<(), anyhow::Error> {
+        let store = make_store_string()?;
+        test_del_sync(store);
+        Ok(())
+    }
+
+    #[test]
+    fn test_store_batch_set_sync() -> Result<(), anyhow::Error> {
+        let store = make_store_i32()?;
+        test_batch_set_sync(store);
+        Ok(())
+    }
+
+    #[test]
+    fn test_store_batch_get_sync() -> Result<(), anyhow::Error> {
+        let store = make_store_i32()?;
+        test_batch_get_sync(store);
+        Ok(())
+    }
+
+    #[test]
+    fn test_store_batch_del_sync() -> Result<(), anyhow::Error> {
+        let store = make_store_i32()?;
+        test_batch_del_sync(store);
+        Ok(())
+    }
+
+    #[test]
+    fn test_store_close_sync() -> Result<(), anyhow::Error> {
+        let store = make_store_i32()?;
+        test_close_sync(store);
+        Ok(())
+    }
+
+    // ===== 特定场景测试 =====
+
+    // ===== 特定场景测试 =====
 
     #[test]
     fn test_loadable_sync_store_inplace() -> Result<(), anyhow::Error> {
@@ -309,33 +438,6 @@ mod tests {
 
         assert_eq!(store.get_sync(&"k1".to_string())?, "v1");
         assert_eq!(store.get_sync(&"k2".to_string())?, "v2");
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_loadable_sync_store_set_and_get() -> Result<(), anyhow::Error> {
-        setup()?;
-
-        let temp_file = create_temp_file(&["k1\tv1"]);
-        let config = make_config(
-            "RwLockHashMapStore",
-            temp_file.path().to_str().unwrap(),
-            "inplace",
-        );
-
-        let store = LoadableSyncStore::<String, String>::new(config)?;
-
-        // 手动 set
-        store.set_sync(&"k3".to_string(), &"v3".to_string(), &SetOptions::new())?;
-        assert_eq!(store.get_sync(&"k3".to_string())?, "v3");
-
-        // del
-        store.del_sync(&"k1".to_string())?;
-        assert!(matches!(
-            store.get_sync(&"k1".to_string()),
-            Err(KvError::KeyNotFound)
-        ));
 
         Ok(())
     }

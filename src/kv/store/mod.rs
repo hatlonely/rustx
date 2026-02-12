@@ -6,6 +6,9 @@ pub mod loadable_sync_store;
 pub mod redis_store;
 pub mod register;
 
+#[cfg(test)]
+pub mod common_tests;
+
 // 重新导出核心类型和 trait
 pub use core::{IsSyncStore, KvError, SetOptions, Store, SyncStore};
 // 重新导出具体实现

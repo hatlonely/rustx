@@ -1,10 +1,11 @@
 use async_trait::async_trait;
 use redis::AsyncCommands;
+use redis::{ExistenceCheck, SetExpiry, SetOptions as RedisSetOptions};
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use std::time::Duration;
 
-use super::core::{KvError, SetOptions, Store};
+use super::core::{IsAsyncStore, KvError, SetOptions, Store};
 use crate::cfg::{create_trait_from_type_options, TypeOptions};
 use crate::kv::serializer::Serializer;
 
@@ -265,47 +266,39 @@ where
         let key_str = String::from_utf8(key_bytes)
             .map_err(|e| KvError::Other(format!("Invalid key UTF-8: {}", e)))?;
 
-        // 3. 检查 IfNotExist 条件
+        // 3. 构建 Redis SET 命令选项
+        let mut redis_set_opts = RedisSetOptions::default();
+
+        // 设置条件检查（NX）
         if options.if_not_exist {
-            let mut con = self
-                .client
-                .get_multiplexed_async_connection()
-                .await
-                .map_err(|e| KvError::Other(format!("Failed to get connection: {}", e)))?;
-
-            let exists: bool = redis::cmd("EXISTS")
-                .arg(&key_str)
-                .query_async(&mut con)
-                .await
-                .map_err(|e| KvError::Other(format!("EXISTS failed: {}", e)))?;
-
-            if exists {
-                return Err(KvError::ConditionFailed);
-            }
+            redis_set_opts = redis_set_opts.conditional_set(ExistenceCheck::NX);
         }
 
-        // 4. 确定 TTL
+        // 设置过期时间
         let expiration = options.expiration.unwrap_or(self.default_ttl);
+        if expiration > Duration::ZERO {
+            redis_set_opts = redis_set_opts
+                .with_expiration(SetExpiry::EX(expiration.as_secs().try_into().unwrap()));
+        }
 
-        // 5. 执行 SET 命令
+        // 4. 执行 SET 命令
         let mut con = self
             .client
             .get_multiplexed_async_connection()
             .await
             .map_err(|e| KvError::Other(format!("Failed to get connection: {}", e)))?;
 
-        if expiration > Duration::ZERO {
-            // 使用 SETEX 命令设置带过期时间的键
-            let _: () = con
-                .set_ex(&key_str, val_bytes.as_slice(), expiration.as_secs())
-                .await
-                .map_err(|e| KvError::Other(format!("SET failed: {}", e)))?;
-        } else {
-            // 使用 SET 命令
-            let _: () = con
-                .set(&key_str, val_bytes.as_slice())
-                .await
-                .map_err(|e| KvError::Other(format!("SET failed: {}", e)))?;
+        // 使用 set_options 命令，返回值是 Option<String>：
+        // - Some(_) 表示设置成功
+        // - None 表示设置失败（key 已存在且设置了 NX 选项）
+        let result: Option<String> = con
+            .set_options(&key_str, val_bytes.as_slice(), redis_set_opts)
+            .await
+            .map_err(|e| KvError::Other(format!("SET failed: {}", e)))?;
+
+        // 如果使用了 NX 选项但 key 已存在，返回 ConditionFailed
+        if options.if_not_exist && result.is_none() {
+            return Err(KvError::ConditionFailed);
         }
 
         Ok(())
@@ -403,7 +396,17 @@ where
         // 2. 确定 TTL
         let expiration = options.expiration.unwrap_or(self.default_ttl);
 
-        // 3. 使用 Pipeline 批量执行
+        // 3. 构建 Redis SET 命令选项（所有键共享相同的选项）
+        let mut redis_set_opts = RedisSetOptions::default();
+        if options.if_not_exist {
+            redis_set_opts = redis_set_opts.conditional_set(ExistenceCheck::NX);
+        }
+        if expiration > Duration::ZERO {
+            redis_set_opts = redis_set_opts
+                .with_expiration(SetExpiry::EX(expiration.as_secs().try_into().unwrap()));
+        }
+
+        // 4. 使用 Pipeline 批量执行
         let mut con = self
             .client
             .get_multiplexed_async_connection()
@@ -411,24 +414,33 @@ where
             .map_err(|e| KvError::Other(format!("Failed to get connection: {}", e)))?;
 
         let mut pipe = redis::pipe();
-        pipe.atomic();
+        // 注意：不使用 atomic()，因为我们需要每个命令独立执行并收集结果
 
         for (key_str, val_bytes) in &items {
-            if expiration > Duration::ZERO {
-                pipe.set_ex(key_str, val_bytes.as_slice(), expiration.as_secs());
-            } else {
-                pipe.set(key_str, val_bytes.as_slice());
-            }
+            pipe.set_options(key_str, val_bytes.as_slice(), redis_set_opts.clone());
         }
 
-        // 4. 执行 Pipeline
-        let _: () = pipe
+        // 5. 执行 Pipeline 并收集返回值
+        // set_options 返回 Option<String>，所以 pipeline 返回 Vec<Option<String>>
+        let results: Vec<Option<String>> = pipe
             .query_async(&mut con)
             .await
             .map_err(|e| KvError::Other(format!("Pipeline SET failed: {}", e)))?;
 
-        // 5. 返回成功结果
-        Ok((0..items.len()).map(|_| Ok(())).collect())
+        // 6. 将 Redis 返回值转换为 KvError 结果
+        let final_results: Vec<Result<(), KvError>> = results
+            .into_iter()
+            .map(|result| {
+                // 如果使用了 NX 选项且返回 None，表示 key 已存在
+                if options.if_not_exist && result.is_none() {
+                    Err(KvError::ConditionFailed)
+                } else {
+                    Ok(())
+                }
+            })
+            .collect();
+
+        Ok(final_results)
     }
 
     async fn batch_get(
@@ -566,10 +578,164 @@ where
     }
 }
 
+/// 实现 IsAsyncStore 标记，让 RedisStore 自动获得 SyncStore 能力
+impl<K, V> IsAsyncStore for RedisStore<K, V>
+where
+    K: Clone + Send + Sync + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::kv::serializer::register_serde_serializers;
+    use crate::kv::store::common_tests::*;
+    use crate::kv::store::core::SyncStore;
+
+    // 清理测试数据的辅助函数
+    async fn cleanup_test_keys<V>(store: &RedisStore<String, V>, keys: Vec<&str>)
+    where
+        V: Clone + Send + Sync + 'static,
+    {
+        for key in keys {
+            let _ = store.del(&key.to_string()).await;
+        }
+    }
+
+    // 辅助函数：创建用于测试的 RedisStore<String, String>
+    // RedisStore 实现了 Store (异步) 并标记为 IsAsyncStore，
+    // 所以会自动获得 SyncStore 实现，同一个 store 可用于异步和同步测试
+    async fn make_store_string() -> RedisStore<String, String> {
+        register_serde_serializers::<String>().unwrap();
+        let config = RedisStoreConfig {
+            endpoint: Some("localhost:6379".to_string()),
+            ..Default::default()
+        };
+        let store = RedisStore::<String, String>::new(config).unwrap();
+
+        // 清理可能的测试残留数据
+        cleanup_test_keys(&store, vec!["test_key", "test_key2"]).await;
+
+        store
+    }
+
+    // 辅助函数：创建用于测试的 RedisStore<String, i32>
+    async fn make_store_i32() -> RedisStore<String, i32> {
+        register_serde_serializers::<String>().unwrap();
+        register_serde_serializers::<i32>().unwrap();
+        let config = RedisStoreConfig {
+            endpoint: Some("localhost:6379".to_string()),
+            ..Default::default()
+        };
+        let store = RedisStore::<String, i32>::new(config).unwrap();
+
+        // 清理可能的测试残留数据
+        cleanup_test_keys(&store, vec!["key1", "key2", "key3", "key4", "key5"]).await;
+
+        store
+    }
+
+    // 同步测试使用相同的辅助函数，因为 RedisStore 自动实现了 SyncStore
+    // 不需要单独的 make_store_sync_* 方法
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_store_set() {
+        let store = make_store_string().await;
+        test_set(store).await;
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_store_get() {
+        let store = make_store_string().await;
+        test_get(store).await;
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_store_del() {
+        let store = make_store_string().await;
+        test_del(store).await;
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_store_batch_set() {
+        let store = make_store_i32().await;
+        test_batch_set(store).await;
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_store_batch_get() {
+        let store = make_store_i32().await;
+        test_batch_get(store).await;
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_store_batch_del() {
+        let store = make_store_i32().await;
+        test_batch_del(store).await;
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_store_close() {
+        let store = make_store_i32().await;
+        test_close(store).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn test_store_set_sync() {
+        let store = make_store_string().await;
+        test_set_sync(store);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn test_store_get_sync() {
+        let store = make_store_string().await;
+        test_get_sync(store);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn test_store_del_sync() {
+        let store = make_store_string().await;
+        test_del_sync(store);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn test_store_batch_set_sync() {
+        let store = make_store_i32().await;
+        test_batch_set_sync(store);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn test_store_batch_get_sync() {
+        let store = make_store_i32().await;
+        test_batch_get_sync(store);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn test_store_batch_del_sync() {
+        let store = make_store_i32().await;
+        test_batch_del_sync(store);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn test_store_close_sync() {
+        let store = make_store_i32().await;
+        test_close_sync(store);
+    }
 
     #[test]
     fn test_redis_store_config_default() {
@@ -626,44 +792,9 @@ mod tests {
         }
     }
 
-    // 以下测试需要实际的 Redis 服务器，使用 #[ignore] 跳过
-    // 运行时使用: cargo test -- --ignored
-
     #[tokio::test]
     #[ignore]
-    async fn test_redis_store_basic_operations() {
-        // 先注册序列化器
-        register_serde_serializers::<String>().unwrap();
-
-        let config = RedisStoreConfig {
-            endpoint: Some("localhost:6379".to_string()),
-            ..Default::default()
-        };
-
-        let store = RedisStore::<String, String>::new(config).unwrap();
-
-        // 测试 SET 和 GET
-        store
-            .set(&"key1".to_string(), &"value1".to_string(), &SetOptions::new())
-            .await
-            .unwrap();
-
-        let value = store.get(&"key1".to_string()).await.unwrap();
-        assert_eq!(value, "value1");
-
-        // 测试 GET 不存在的键
-        let result = store.get(&"nonexistent".to_string()).await;
-        assert!(matches!(result, Err(KvError::KeyNotFound)));
-
-        // 测试 DEL
-        store.del(&"key1".to_string()).await.unwrap();
-        let result = store.get(&"key1".to_string()).await;
-        assert!(matches!(result, Err(KvError::KeyNotFound)));
-    }
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_redis_store_ttl() {
+    async fn test_store_ttl() {
         register_serde_serializers::<String>().unwrap();
 
         let config = RedisStoreConfig {
@@ -674,111 +805,29 @@ mod tests {
 
         let store = RedisStore::<String, String>::new(config).unwrap();
 
+        // 使用唯一的 key（基于测试名称）
+        let prefix = "test_store_ttl";
+        let ttl_key = format!("{}:ttl_key", prefix);
+
         store
-            .set(
-                &"ttl_key".to_string(),
-                &"ttl_value".to_string(),
-                &SetOptions::new(),
-            )
+            .set(&ttl_key, &"ttl_value".to_string(), &SetOptions::new())
             .await
             .unwrap();
 
         // 立即获取应该成功
-        let value = store.get(&"ttl_key".to_string()).await.unwrap();
+        let value = store.get(&ttl_key).await.unwrap();
         assert_eq!(value, "ttl_value");
 
         // 等待 2 秒后应该过期
         tokio::time::sleep(Duration::from_secs(2)).await;
-        let result = store.get(&"ttl_key".to_string()).await;
+        let result = store.get(&ttl_key).await;
         assert!(matches!(result, Err(KvError::KeyNotFound)));
     }
 
     #[tokio::test]
     #[ignore]
-    async fn test_redis_store_if_not_exist() {
-        register_serde_serializers::<String>().unwrap();
-
-        let config = RedisStoreConfig {
-            endpoint: Some("localhost:6379".to_string()),
-            ..Default::default()
-        };
-
-        let store = RedisStore::<String, String>::new(config).unwrap();
-
-        // 第一次设置应该成功
-        store
-            .set(
-                &"nx_key".to_string(),
-                &"value1".to_string(),
-                &SetOptions::new().with_if_not_exist(),
-            )
-            .await
-            .unwrap();
-
-        // 第二次设置应该失败
-        let result = store
-            .set(
-                &"nx_key".to_string(),
-                &"value2".to_string(),
-                &SetOptions::new().with_if_not_exist(),
-            )
-            .await;
-        assert!(matches!(result, Err(KvError::ConditionFailed)));
-
-        // 验证值没有被覆盖
-        let value = store.get(&"nx_key".to_string()).await.unwrap();
-        assert_eq!(value, "value1");
-    }
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_redis_store_batch_operations() {
-        register_serde_serializers::<String>().unwrap();
-        register_serde_serializers::<i32>().unwrap();
-
-        let config = RedisStoreConfig {
-            endpoint: Some("localhost:6379".to_string()),
-            ..Default::default()
-        };
-
-        let store = RedisStore::<String, i32>::new(config).unwrap();
-
-        // 测试批量设置
-        let keys = vec!["key1".to_string(), "key2".to_string(), "key3".to_string()];
-        let values = vec![10, 20, 30];
-
-        let results = store
-            .batch_set(&keys, &values, &SetOptions::new())
-            .await
-            .unwrap();
-        assert_eq!(results.len(), 3);
-        assert!(results.iter().all(|r| r.is_ok()));
-
-        // 测试批量获取
-        let (retrieved_values, errors) = store.batch_get(&keys).await.unwrap();
-        assert_eq!(retrieved_values.len(), 3);
-        assert_eq!(retrieved_values[0], Some(10));
-        assert_eq!(retrieved_values[1], Some(20));
-        assert_eq!(retrieved_values[2], Some(30));
-        assert!(errors.iter().all(|e| e.is_none()));
-
-        // 测试批量删除
-        let del_results = store.batch_del(&keys).await.unwrap();
-        assert_eq!(del_results.len(), 3);
-        assert!(del_results.iter().all(|r| r.is_ok()));
-
-        // 验证删除后不存在
-        let (empty_values, not_found_errors) = store.batch_get(&keys).await.unwrap();
-        assert!(empty_values.iter().all(|v| v.is_none()));
-        assert!(not_found_errors
-            .iter()
-            .all(|e| matches!(e, Some(KvError::KeyNotFound))));
-    }
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_redis_store_custom_serializer() {
-        // 注册 JSON 和 MsgPack 序列化器
+    async fn test_store_custom_serializer() {
+        // 注册 JSON 序列化器
         register_serde_serializers::<String>().unwrap();
 
         use serde::{Deserialize, Serialize};
@@ -798,17 +847,92 @@ mod tests {
 
         let store = RedisStore::<String, User>::new(config).unwrap();
 
+        // 使用唯一的 key（基于测试名称）
+        let prefix = "test_store_custom_serializer";
+        let user_key = format!("{}:user:1", prefix);
+
         let user = User {
             name: "Alice".to_string(),
             age: 30,
         };
 
         store
-            .set(&"user:1".to_string(), &user, &SetOptions::new())
+            .set(&user_key, &user, &SetOptions::new())
             .await
             .unwrap();
 
-        let retrieved = store.get(&"user:1".to_string()).await.unwrap();
+        let retrieved = store.get(&user_key).await.unwrap();
+        assert_eq!(retrieved, user);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn test_redis_store_sync_ttl() {
+        register_serde_serializers::<String>().unwrap();
+
+        let config = RedisStoreConfig {
+            endpoint: Some("localhost:6379".to_string()),
+            default_ttl: 1, // 1 秒过期
+            ..Default::default()
+        };
+
+        let store = RedisStore::<String, String>::new(config).unwrap();
+
+        // 使用唯一的 key（基于测试名称）
+        let prefix = "test_redis_store_sync_ttl";
+        let ttl_key = format!("{}:ttl_key", prefix);
+
+        store
+            .set_sync(&ttl_key, &"ttl_value".to_string(), &SetOptions::new())
+            .unwrap();
+
+        // 立即获取应该成功
+        let value = store.get_sync(&ttl_key).unwrap();
+        assert_eq!(value, "ttl_value");
+
+        // 等待 2 秒后应该过期
+        std::thread::sleep(Duration::from_secs(2));
+        let result = store.get_sync(&ttl_key);
+        assert!(matches!(result, Err(KvError::KeyNotFound)));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn test_store_custom_serializer_sync() {
+        // 注册 JSON 序列化器
+        register_serde_serializers::<String>().unwrap();
+
+        use serde::{Deserialize, Serialize};
+
+        #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+        struct User {
+            name: String,
+            age: u32,
+        }
+
+        register_serde_serializers::<User>().unwrap();
+
+        let config = RedisStoreConfig {
+            endpoint: Some("localhost:6379".to_string()),
+            ..Default::default()
+        };
+
+        let store = RedisStore::<String, User>::new(config).unwrap();
+
+        // 使用唯一的 key（基于测试名称）
+        let prefix = "test_store_custom_serializer_sync";
+        let user_key = format!("{}:user:1", prefix);
+
+        let user = User {
+            name: "Alice".to_string(),
+            age: 30,
+        };
+
+        store
+            .set_sync(&user_key, &user, &SetOptions::new())
+            .unwrap();
+
+        let retrieved = store.get_sync(&user_key).unwrap();
         assert_eq!(retrieved, user);
     }
 }

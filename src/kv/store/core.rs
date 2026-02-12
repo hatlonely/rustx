@@ -46,6 +46,12 @@ impl SetOptions {
 /// 这样可以避免与 RedisStore 等远程存储实现产生冲突
 pub trait IsSyncStore {}
 
+/// 标记 trait：标识异步存储类型
+///
+/// 只有实现此 trait 的 Store 才会自动获得 SyncStore trait 的同步包装
+/// 这样可以避免与内存存储实现产生冲突
+pub trait IsAsyncStore {}
+
 /// 同步 KV 存储接口
 ///
 /// 内存存储实现只需实现此 trait，会自动获得异步能力
@@ -169,5 +175,80 @@ where
 
     async fn close(&self) -> Result<(), KvError> {
         self.close_sync()
+    }
+}
+
+/// 为所有异步存储（Store + IsAsyncStore）自动提供 SyncStore trait 的同步包装
+///
+/// 这样异步存储只需实现 Store 和 IsAsyncStore，就会自动获得同步能力
+/// 而不会与 DashMapStore 等内存存储产生冲突
+impl<K, V, T> SyncStore<K, V> for T
+where
+    K: Clone + Send + Sync + 'static,
+    V: Clone + Send + Sync + 'static,
+    T: Store<K, V> + IsAsyncStore,
+{
+    fn set_sync(&self, key: &K, value: &V, options: &SetOptions) -> Result<(), KvError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::try_current()
+                .map_err(|e| KvError::Other(format!("no runtime: {}", e)))?
+                .block_on(self.set(key, value, options))
+        })
+    }
+
+    fn get_sync(&self, key: &K) -> Result<V, KvError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::try_current()
+                .map_err(|e| KvError::Other(format!("no runtime: {}", e)))?
+                .block_on(self.get(key))
+        })
+    }
+
+    fn del_sync(&self, key: &K) -> Result<(), KvError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::try_current()
+                .map_err(|e| KvError::Other(format!("no runtime: {}", e)))?
+                .block_on(self.del(key))
+        })
+    }
+
+    fn batch_set_sync(
+        &self,
+        keys: &[K],
+        vals: &[V],
+        options: &SetOptions,
+    ) -> Result<Vec<Result<(), KvError>>, KvError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::try_current()
+                .map_err(|e| KvError::Other(format!("no runtime: {}", e)))?
+                .block_on(self.batch_set(keys, vals, options))
+        })
+    }
+
+    fn batch_get_sync(
+        &self,
+        keys: &[K],
+    ) -> Result<(Vec<Option<V>>, Vec<Option<KvError>>), KvError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::try_current()
+                .map_err(|e| KvError::Other(format!("no runtime: {}", e)))?
+                .block_on(self.batch_get(keys))
+        })
+    }
+
+    fn batch_del_sync(&self, keys: &[K]) -> Result<Vec<Result<(), KvError>>, KvError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::try_current()
+                .map_err(|e| KvError::Other(format!("no runtime: {}", e)))?
+                .block_on(self.batch_del(keys))
+        })
+    }
+
+    fn close_sync(&self) -> Result<(), KvError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::try_current()
+                .map_err(|e| KvError::Other(format!("no runtime: {}", e)))?
+                .block_on(self.close())
+        })
     }
 }
