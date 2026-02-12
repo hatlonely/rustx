@@ -189,7 +189,7 @@ mod tests {
     use super::*;
     use crate::kv::store::common_tests::*;
 
-    // ========== 公共测试 - 异步接口 ==========
+    // ========== 公共测试 ==========
 
     #[tokio::test]
     async fn test_store_set() {
@@ -233,8 +233,6 @@ mod tests {
         test_close(store).await;
     }
 
-    // ========== 公共测试 - 同步接口 ==========
-
     #[test]
     fn test_store_set_sync() {
         let store = DashMapStore::<String, String>::new(DashMapStoreConfig::default());
@@ -277,7 +275,7 @@ mod tests {
         test_close_sync(store);
     }
 
-    // ========== 非公共测试 ==========
+    // ========== 场景测试 ==========
 
     #[tokio::test]
     async fn test_store_from_json5_config() {
@@ -306,7 +304,11 @@ mod tests {
 
         let store2 = DashMapStore::<String, String>::new(empty_config);
         store2
-            .set(&"test".to_string(), &"value".to_string(), &SetOptions::new())
+            .set(
+                &"test".to_string(),
+                &"value".to_string(),
+                &SetOptions::new(),
+            )
             .await
             .unwrap();
         let value2 = store2.get(&"test".to_string()).await.unwrap();
@@ -319,7 +321,9 @@ mod tests {
         use std::time::Duration;
         use tokio::time::sleep;
 
-        let store = Arc::new(DashMapStore::<String, i32>::new(DashMapStoreConfig::default()));
+        let store = Arc::new(DashMapStore::<String, i32>::new(
+            DashMapStoreConfig::default(),
+        ));
         let num_readers = 5;
         let num_writers = 3;
         let num_operations = 100;

@@ -119,8 +119,8 @@ where
     /// 成功返回 RedisStore 实例，失败返回 RedisError
     pub fn new(config: RedisStoreConfig) -> Result<Self, RedisError> {
         // 1. 验证配置
-        let is_cluster = config.endpoints.as_ref().map_or(false, |e| !e.is_empty());
-        let is_single = config.endpoint.as_ref().map_or(false, |e| !e.is_empty());
+        let is_cluster = config.endpoints.as_ref().is_some_and(|e| !e.is_empty());
+        let is_single = config.endpoint.as_ref().is_some_and(|e| !e.is_empty());
 
         if !is_cluster && !is_single {
             return Err(RedisError::InvalidConfig(
@@ -277,8 +277,7 @@ where
         // 设置过期时间
         let expiration = options.expiration.unwrap_or(self.default_ttl);
         if expiration > Duration::ZERO {
-            redis_set_opts = redis_set_opts
-                .with_expiration(SetExpiry::EX(expiration.as_secs().try_into().unwrap()));
+            redis_set_opts = redis_set_opts.with_expiration(SetExpiry::EX(expiration.as_secs()));
         }
 
         // 4. 执行 SET 命令
@@ -402,8 +401,7 @@ where
             redis_set_opts = redis_set_opts.conditional_set(ExistenceCheck::NX);
         }
         if expiration > Duration::ZERO {
-            redis_set_opts = redis_set_opts
-                .with_expiration(SetExpiry::EX(expiration.as_secs().try_into().unwrap()));
+            redis_set_opts = redis_set_opts.with_expiration(SetExpiry::EX(expiration.as_secs()));
         }
 
         // 4. 使用 Pipeline 批量执行
@@ -592,6 +590,7 @@ mod tests {
     use crate::kv::serializer::register_serde_serializers;
     use crate::kv::store::common_tests::*;
     use crate::kv::store::core::SyncStore;
+    use serial_test::serial;
 
     // 清理测试数据的辅助函数
     async fn cleanup_test_keys<V>(store: &RedisStore<String, V>, keys: Vec<&str>)
@@ -636,11 +635,11 @@ mod tests {
         store
     }
 
-    // 同步测试使用相同的辅助函数，因为 RedisStore 自动实现了 SyncStore
-    // 不需要单独的 make_store_sync_* 方法
+    // ========== 公共测试 ==========
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_store_set() {
         let store = make_store_string().await;
         test_set(store).await;
@@ -648,6 +647,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_store_get() {
         let store = make_store_string().await;
         test_get(store).await;
@@ -655,6 +655,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_store_del() {
         let store = make_store_string().await;
         test_del(store).await;
@@ -662,6 +663,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_store_batch_set() {
         let store = make_store_i32().await;
         test_batch_set(store).await;
@@ -669,6 +671,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_store_batch_get() {
         let store = make_store_i32().await;
         test_batch_get(store).await;
@@ -676,6 +679,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_store_batch_del() {
         let store = make_store_i32().await;
         test_batch_del(store).await;
@@ -683,6 +687,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_store_close() {
         let store = make_store_i32().await;
         test_close(store).await;
@@ -690,6 +695,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     #[ignore]
+    #[serial]
     async fn test_store_set_sync() {
         let store = make_store_string().await;
         test_set_sync(store);
@@ -697,6 +703,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     #[ignore]
+    #[serial]
     async fn test_store_get_sync() {
         let store = make_store_string().await;
         test_get_sync(store);
@@ -704,6 +711,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     #[ignore]
+    #[serial]
     async fn test_store_del_sync() {
         let store = make_store_string().await;
         test_del_sync(store);
@@ -711,6 +719,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     #[ignore]
+    #[serial]
     async fn test_store_batch_set_sync() {
         let store = make_store_i32().await;
         test_batch_set_sync(store);
@@ -718,6 +727,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     #[ignore]
+    #[serial]
     async fn test_store_batch_get_sync() {
         let store = make_store_i32().await;
         test_batch_get_sync(store);
@@ -725,6 +735,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     #[ignore]
+    #[serial]
     async fn test_store_batch_del_sync() {
         let store = make_store_i32().await;
         test_batch_del_sync(store);
@@ -732,10 +743,13 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     #[ignore]
+    #[serial]
     async fn test_store_close_sync() {
         let store = make_store_i32().await;
         test_close_sync(store);
     }
+
+    // ========== 场景测试 ==========
 
     #[test]
     fn test_redis_store_config_default() {
@@ -794,6 +808,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_store_ttl() {
         register_serde_serializers::<String>().unwrap();
 
@@ -826,6 +841,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_store_custom_serializer() {
         // 注册 JSON 序列化器
         register_serde_serializers::<String>().unwrap();
@@ -867,6 +883,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     #[ignore]
+    #[serial]
     async fn test_redis_store_sync_ttl() {
         register_serde_serializers::<String>().unwrap();
 
@@ -898,6 +915,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     #[ignore]
+    #[serial]
     async fn test_store_custom_serializer_sync() {
         // 注册 JSON 序列化器
         register_serde_serializers::<String>().unwrap();

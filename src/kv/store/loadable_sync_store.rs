@@ -53,7 +53,10 @@ where
     pub fn new(config: LoadableSyncStoreConfig) -> Result<Self, anyhow::Error> {
         // 使用 garde 验证配置
         if let Err(errors) = config.validate() {
-            return Err(anyhow::anyhow!("configuration validation failed: {}", errors));
+            return Err(anyhow::anyhow!(
+                "configuration validation failed: {}",
+                errors
+            ));
         }
 
         let store: Box<dyn SyncStore<K, V>> = create_trait_from_type_options(&config.store)?;
@@ -223,9 +226,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kv::store::common_tests::*;
     use crate::kv::loader::register::register_loaders;
     use crate::kv::parser::register_parsers;
+    use crate::kv::store::common_tests::*;
     use crate::kv::store::register::register_sync_stores;
     use std::io::Write;
     use tempfile::NamedTempFile;
@@ -283,18 +286,26 @@ mod tests {
     fn make_store_string() -> Result<LoadableSyncStore<String, String>, anyhow::Error> {
         setup()?;
         let temp_file = create_temp_file(&[]);
-        let config = make_config("RwLockHashMapStore", temp_file.path().to_str().unwrap(), "inplace");
+        let config = make_config(
+            "RwLockHashMapStore",
+            temp_file.path().to_str().unwrap(),
+            "inplace",
+        );
         LoadableSyncStore::new(config)
     }
 
     fn make_store_i32() -> Result<LoadableSyncStore<String, i32>, anyhow::Error> {
         setup_i32()?;
         let temp_file = create_temp_file(&[]);
-        let config = make_config("RwLockHashMapStore", temp_file.path().to_str().unwrap(), "inplace");
+        let config = make_config(
+            "RwLockHashMapStore",
+            temp_file.path().to_str().unwrap(),
+            "inplace",
+        );
         LoadableSyncStore::new(config)
     }
 
-    // ===== 公共测试 - 异步接口 =====
+    // ===== 公共测试 =====
 
     #[tokio::test]
     async fn test_store_set() -> Result<(), anyhow::Error> {
@@ -345,8 +356,6 @@ mod tests {
         Ok(())
     }
 
-    // ===== 公共测试 - 同步接口 =====
-
     #[test]
     fn test_store_set_sync() -> Result<(), anyhow::Error> {
         let store = make_store_string()?;
@@ -396,9 +405,7 @@ mod tests {
         Ok(())
     }
 
-    // ===== 特定场景测试 =====
-
-    // ===== 特定场景测试 =====
+    // ===== 场景测试 =====
 
     #[test]
     fn test_loadable_sync_store_inplace() -> Result<(), anyhow::Error> {
