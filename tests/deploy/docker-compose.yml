@@ -8,7 +8,7 @@
 #   仅启动 Apollo: docker compose --profile apollo up -d
 #   仅启动 Redis: docker compose up -d redis
 #   仅启动 Jaeger: docker compose --profile jaeger up -d
-#   仅启动 MySQL: docker compose --profile mysql up -d (待实现)
+#   仅启动 MySQL: docker compose --profile mysql up -d
 #
 # 停止方式:
 #   docker compose down -v
@@ -17,5 +17,4 @@ include:
   - path: ./apollo/docker-compose.yml
   - path: ./redis/docker-compose.yml
   - path: ./jaeger/docker-compose.yml
-    # 未来可以添加更多服务:
-    # - path: ./mysql/docker-compose.yml
+  - path: ./mysql/docker-compose.yml
