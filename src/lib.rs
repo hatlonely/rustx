@@ -33,7 +33,7 @@ pub use fs::{FileEvent, FileWatcher};
 
 pub use kv::{
     ChangeType, KvError, Stream, Listener, Loader, LoaderError, Parser, ParserError, Serializer,
-    SerializerError, SetOptions, Store, LOAD_STRATEGY_INPLACE, LOAD_STRATEGY_REPLACE,
+    SerializerError, SetOptions, Store, AsyncStore, LOAD_STRATEGY_INPLACE, LOAD_STRATEGY_REPLACE,
 };
 
 pub use log::{LogLevel, Logger, LoggerConfig, LogAppender, LogFormatter, LogRecord};

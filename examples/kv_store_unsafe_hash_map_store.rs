@@ -1,7 +1,6 @@
 use anyhow::Result;
 use rustx::cfg::*;
-use rustx::kv::store::{SetOptions, Store};
-use rustx::kv::store::register::register_hash_stores;
+use rustx::kv::store::{register_hash_stores, SetOptions, AsyncStore};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -20,7 +19,7 @@ async fn main() -> Result<()> {
 
     let type_options = TypeOptions::from_json(&json_config)?;
     println!("🔍 使用的类型名: {}", type_options.type_name);
-    let store: Box<dyn Store<String, String>> = create_trait_from_type_options(&type_options)?;
+    let store: Box<dyn AsyncStore<String, String>> = create_trait_from_type_options(&type_options)?;
 
     println!("✅ JSON配置创建无锁UnsafeHashMapStore成功");
 

@@ -3,7 +3,7 @@
 //! 提供针对 Store trait 各个接口方法的通用测试函数
 
 #[cfg(test)]
-use super::core::{KvError, SetOptions, Store, SyncStore};
+use super::core::{KvError, SetOptions, AsyncStore, SyncStore};
 
 /// 测试 `set` 方法
 ///
@@ -14,7 +14,7 @@ use super::core::{KvError, SetOptions, Store, SyncStore};
 #[cfg(test)]
 pub async fn test_set<S>(store: S)
 where
-    S: Store<String, String>,
+    S: AsyncStore<String, String>,
 {
     // 测试基本设置
     let key = "test_key".to_string();
@@ -84,7 +84,7 @@ where
 #[cfg(test)]
 pub async fn test_get<S>(store: S)
 where
-    S: Store<String, String>,
+    S: AsyncStore<String, String>,
 {
     // 测试获取不存在的 key
     let result = store.get(&"non_existent_key".to_string()).await;
@@ -126,7 +126,7 @@ where
 #[cfg(test)]
 pub async fn test_del<S>(store: S)
 where
-    S: Store<String, String>,
+    S: AsyncStore<String, String>,
 {
     // 测试删除存在的 key
     let key = "test_key".to_string();
@@ -174,7 +174,7 @@ where
 #[cfg(test)]
 pub async fn test_batch_set<S>(store: S)
 where
-    S: Store<String, i32>,
+    S: AsyncStore<String, i32>,
 {
     // 测试基本批量设置
     let keys = vec!["key1".to_string(), "key2".to_string(), "key3".to_string()];
@@ -253,7 +253,7 @@ where
 #[cfg(test)]
 pub async fn test_batch_get<S>(store: S)
 where
-    S: Store<String, i32>,
+    S: AsyncStore<String, i32>,
 {
     // 先设置一些数据
     let keys = vec!["key1".to_string(), "key2".to_string(), "key3".to_string()];
@@ -310,7 +310,7 @@ where
 #[cfg(test)]
 pub async fn test_batch_del<S>(store: S)
 where
-    S: Store<String, i32>,
+    S: AsyncStore<String, i32>,
 {
     // 先设置一些数据
     let keys = vec!["key1".to_string(), "key2".to_string(), "key3".to_string()];
@@ -376,7 +376,7 @@ where
 #[cfg(test)]
 pub async fn test_close<S>(store: S)
 where
-    S: Store<String, i32>,
+    S: AsyncStore<String, i32>,
 {
     // 设置一些数据
     store

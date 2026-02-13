@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rustx::cfg::*;
 use rustx::kv::serializer::register_serde_serializers;
-use rustx::kv::store::{register_redis_stores, SetOptions, Store};
+use rustx::kv::store::{register_stores, SetOptions, AsyncStore};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -9,7 +9,7 @@ async fn main() -> Result<()> {
     register_serde_serializers::<String>()?;
 
     // 零耦合自动注册！RedisStore 完全不需要知道配置系统的存在
-    register_redis_stores::<String, String>()?;
+    register_stores::<String, String>()?;
 
     println!("=== RedisStore JSON 配置示例 ===");
     println!("⚠️  注意：此示例需要本地 Redis 服务器运行在 localhost:6379");
@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
 
     let type_options = TypeOptions::from_json(&json_config)?;
     println!("🔍 使用的类型名: {}", type_options.type_name);
-    let store: Box<dyn Store<String, String>> = create_trait_from_type_options(&type_options)?;
+    let store: Box<dyn AsyncStore<String, String>> = create_trait_from_type_options(&type_options)?;
 
     println!("✅ JSON配置创建 RedisStore 成功");
 

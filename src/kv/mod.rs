@@ -13,4 +13,4 @@ pub use loader::{
 };
 pub use parser::{ChangeType, Parser, ParserError};
 pub use serializer::{Serializer, SerializerError};
-pub use store::{KvError, SetOptions, Store};
+pub use store::{KvError, SetOptions, Store, AsyncStore};

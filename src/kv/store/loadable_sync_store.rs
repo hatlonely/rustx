@@ -11,7 +11,7 @@ use crate::kv::loader::core::{
 };
 use crate::kv::parser::ChangeType;
 
-use super::core::{IsSyncStore, KvError, SetOptions, Store, SyncStore};
+use super::core::{IsSyncStore, KvError, SetOptions, Store, AsyncStore, SyncStore};
 
 /// LoadableSyncStore 配置
 #[derive(Debug, Clone, Serialize, Deserialize, SmartDefault, Validate)]
@@ -213,6 +213,16 @@ where
     }
 }
 
+impl<K, V> From<Box<LoadableSyncStore<K, V>>> for Box<dyn AsyncStore<K, V>>
+where
+    K: Clone + Send + Sync + Eq + Hash + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+    fn from(source: Box<LoadableSyncStore<K, V>>) -> Self {
+        source as Box<dyn AsyncStore<K, V>>
+    }
+}
+
 impl<K, V> From<Box<LoadableSyncStore<K, V>>> for Box<dyn Store<K, V>>
 where
     K: Clone + Send + Sync + Eq + Hash + 'static,
@@ -229,21 +239,21 @@ mod tests {
     use crate::kv::loader::register::register_loaders;
     use crate::kv::parser::register_parsers;
     use crate::kv::store::common_tests::*;
-    use crate::kv::store::register::register_sync_stores;
+    use crate::kv::store::register_hash_stores;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
     fn setup() -> Result<(), anyhow::Error> {
         let _ = register_parsers::<String, String>();
         let _ = register_loaders::<String, String>();
-        let _ = register_sync_stores::<String, String>();
+        let _ = register_hash_stores::<String, String>();
         Ok(())
     }
 
     fn setup_i32() -> Result<(), anyhow::Error> {
         let _ = register_parsers::<String, i32>();
         let _ = register_loaders::<String, i32>();
-        let _ = register_sync_stores::<String, i32>();
+        let _ = register_hash_stores::<String, i32>();
         Ok(())
     }
 
@@ -492,7 +502,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_from_type_options_as_store() -> Result<(), anyhow::Error> {
         use crate::cfg::{create_trait_from_type_options, TypeOptions};
-        use crate::kv::store::register::register_hash_stores;
+        use crate::kv::store::register_hash_stores;
 
         setup()?;
         let _ = register_hash_stores::<String, String>();
@@ -523,7 +533,7 @@ mod tests {
             temp_file.path().to_str().unwrap()
         ))?;
 
-        let store: Box<dyn Store<String, String>> = create_trait_from_type_options(&opts)?;
+        let store: Box<dyn AsyncStore<String, String>> = create_trait_from_type_options(&opts)?;
 
         assert_eq!(store.get(&"k1".to_string()).await?, "v1");
         assert_eq!(store.get(&"k2".to_string()).await?, "v2");

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use rustx::cfg::*;
-use rustx::kv::store::{register_hash_stores, SetOptions, Store};
+use rustx::kv::store::{register_hash_stores, SetOptions, AsyncStore};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
     }"#;
 
     let opts = TypeOptions::from_json(config)?;
-    let store: Box<dyn Store<String, String>> = create_trait_from_type_options(&opts)?;
+    let store: Box<dyn AsyncStore<String, String>> = create_trait_from_type_options(&opts)?;
 
     // 基本操作
     store.set(&"key1".to_string(), &"value1".to_string(), &SetOptions::new()).await?;

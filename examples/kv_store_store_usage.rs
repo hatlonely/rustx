@@ -3,7 +3,7 @@ use rustx::cfg::{
     create_trait_from_type_options, ConfigSource, FileSource, FileSourceConfig, TypeOptions,
 };
 use rustx::kv::serializer::register_serde_serializers;
-use rustx::kv::store::{register_hash_stores, register_redis_stores, SetOptions, Store};
+use rustx::kv::store::{register_hash_stores, register_stores, SetOptions, AsyncStore};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -12,7 +12,7 @@ async fn main() -> Result<()> {
     // 1. 注册所有 Store 实现
     println!("1. 注册 Store 实现");
     register_hash_stores::<String, String>()?;
-    register_redis_stores::<String, String>()?;
+    register_stores::<String, String>()?;
     register_serde_serializers::<String>()?;
     println!("   已注册 Store\n");
 
@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
 
     // 3. 使用 create_trait_from_type_options 创建 Store
     println!("3. 创建 Store 实例");
-    let store: Box<dyn Store<String, String>> = create_trait_from_type_options(&type_options)?;
+    let store: Box<dyn AsyncStore<String, String>> = create_trait_from_type_options(&type_options)?;
     println!("   Store 创建成功\n");
 
     // 4. 测试基本操作

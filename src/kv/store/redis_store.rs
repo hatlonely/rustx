@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use std::time::Duration;
 
-use super::core::{IsAsyncStore, KvError, SetOptions, Store};
+use super::core::{IsAsyncStore, KvError, SetOptions, Store, AsyncStore, SyncStore};
 use crate::cfg::{create_trait_from_type_options, TypeOptions};
 use crate::kv::serializer::Serializer;
 
@@ -243,9 +243,9 @@ where
     }
 }
 
-// 实现 Store trait
+// 实现 AsyncStore trait
 #[async_trait]
-impl<K, V> Store<K, V> for RedisStore<K, V>
+impl<K, V> AsyncStore<K, V> for RedisStore<K, V>
 where
     K: Clone + Send + Sync + 'static,
     V: Clone + Send + Sync + 'static,
@@ -563,6 +563,26 @@ where
 {
     fn from(config: RedisStoreConfig) -> Self {
         RedisStore::new(config).unwrap()
+    }
+}
+
+impl<K, V> From<Box<RedisStore<K, V>>> for Box<dyn AsyncStore<K, V>>
+where
+    K: Clone + Send + Sync + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+    fn from(source: Box<RedisStore<K, V>>) -> Self {
+        source as Box<dyn AsyncStore<K, V>>
+    }
+}
+
+impl<K, V> From<Box<RedisStore<K, V>>> for Box<dyn SyncStore<K, V>>
+where
+    K: Clone + Send + Sync + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+    fn from(source: Box<RedisStore<K, V>>) -> Self {
+        source as Box<dyn SyncStore<K, V>>
     }
 }
 

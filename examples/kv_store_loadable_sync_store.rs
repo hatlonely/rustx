@@ -2,15 +2,15 @@ use anyhow::Result;
 use rustx::cfg::*;
 use rustx::kv::loader::register_loaders;
 use rustx::kv::parser::register_parsers;
-use rustx::kv::store::{register_sync_stores, SetOptions, SyncStore};
+use rustx::kv::store::{register_hash_stores, SetOptions, SyncStore};
 use std::io::Write;
 use tempfile::NamedTempFile;
 
 fn main() -> Result<()> {
-    // 注册 Parser、Loader、SyncStore
+    // 注册 Parser、Loader、Store
     register_parsers::<String, String>()?;
     register_loaders::<String, String>()?;
-    register_sync_stores::<String, String>()?;
+    register_hash_stores::<String, String>()?;
 
     // 准备数据文件（tab 分隔的 key-value）
     let mut data_file = NamedTempFile::new()?;

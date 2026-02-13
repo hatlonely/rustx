@@ -90,12 +90,12 @@ where
     fn close_sync(&self) -> Result<(), KvError>;
 }
 
-/// 异步 KV 存储接口（原有接口，保持不变）
+/// 异步 KV 存储接口
 ///
 /// 用于远程存储实现（如 Redis、云存储等）
 /// 同时为所有 SyncStore 实现者自动提供异步包装
 #[async_trait]
-pub trait Store<K, V>: Send + Sync
+pub trait AsyncStore<K, V>: Send + Sync
 where
     K: Clone + Send + Sync,
     V: Clone + Send + Sync,
@@ -130,12 +130,45 @@ where
     async fn close(&self) -> Result<(), KvError>;
 }
 
-/// 为所有同步存储（SyncStore + IsSyncStore）自动提供 Store trait 的异步包装
+/// 统一 KV 存储接口
+///
+/// 同时提供同步和异步方法，实现者需要同时实现 SyncStore 和 AsyncStore。
+/// 这是一个标记 trait，用于类型系统中标识同时支持同步和异步的存储实现。
+///
+/// # 自动实现
+///
+/// 以下类型会自动实现 Store trait：
+/// - 所有实现了 `SyncStore + IsSyncStore` 的类型（自动获得 AsyncStore 能力）
+/// - 所有实现了 `AsyncStore + IsAsyncStore` 的类型（自动获得 SyncStore 能力）
+///
+/// # 使用场景
+///
+/// 当你需要一个既支持同步又支持异步的存储时，使用 `dyn Store<K, V>`：
+/// ```ignore
+/// use rustx::kv::store::{Store, register_hash_stores, SetOptions};
+///
+/// register_hash_stores::<String, String>()?;
+/// let store: Box<dyn Store<String, String>> = create_trait_from_type_options(&opts)?;
+///
+/// // 可以调用同步方法
+/// store.set_sync(&key, &value, &SetOptions::new())?;
+///
+/// // 也可以调用异步方法
+/// store.set(&key, &value, &SetOptions::new()).await?;
+/// ```
+pub trait Store<K, V>: SyncStore<K, V> + AsyncStore<K, V> + Send + Sync
+where
+    K: Clone + Send + Sync,
+    V: Clone + Send + Sync,
+{
+}
+
+/// 为所有同步存储（SyncStore + IsSyncStore）自动提供 AsyncStore trait 的异步包装
 ///
 /// 这样同步存储只需实现 SyncStore 和 IsSyncStore，就会自动获得异步能力
 /// 而不会与 RedisStore 等远程存储产生冲突
 #[async_trait]
-impl<K, V, T> Store<K, V> for T
+impl<K, V, T> AsyncStore<K, V> for T
 where
     K: Clone + Send + Sync + 'static,
     V: Clone + Send + Sync + 'static,
@@ -178,15 +211,15 @@ where
     }
 }
 
-/// 为所有异步存储（Store + IsAsyncStore）自动提供 SyncStore trait 的同步包装
+/// 为所有异步存储（AsyncStore + IsAsyncStore）自动提供 SyncStore trait 的同步包装
 ///
-/// 这样异步存储只需实现 Store 和 IsAsyncStore，就会自动获得同步能力
+/// 这样异步存储只需实现 AsyncStore 和 IsAsyncStore，就会自动获得同步能力
 /// 而不会与 DashMapStore 等内存存储产生冲突
 impl<K, V, T> SyncStore<K, V> for T
 where
     K: Clone + Send + Sync + 'static,
     V: Clone + Send + Sync + 'static,
-    T: Store<K, V> + IsAsyncStore,
+    T: AsyncStore<K, V> + IsAsyncStore,
 {
     fn set_sync(&self, key: &K, value: &V, options: &SetOptions) -> Result<(), KvError> {
         tokio::task::block_in_place(|| {
@@ -251,4 +284,15 @@ where
                 .block_on(self.close())
         })
     }
+}
+
+/// 为所有同时实现 SyncStore 和 AsyncStore 的类型自动实现 Store trait
+///
+/// 这样任何同时实现了同步和异步接口的存储都会自动获得 Store trait
+impl<K, V, T> Store<K, V> for T
+where
+    K: Clone + Send + Sync + 'static,
+    V: Clone + Send + Sync + 'static,
+    T: SyncStore<K, V> + AsyncStore<K, V> + Send + Sync,
+{
 }

@@ -2,13 +2,25 @@
 
 提供内存和分布式 KV 存储实现。
 
+## Trait 说明
+
+本模块提供三种 trait，适应不同的使用场景：
+
+| Trait | 说明 | 使用场景 |
+|-------|------|---------|
+| `Store` | 统一接口，同时支持同步和异步方法 | 需要同时使用同步和异步操作的场景 |
+| `SyncStore` | 纯同步接口 | 明确只需要同步操作，或 LoadableSyncStore 等同步场景 |
+| `AsyncStore` | 纯异步接口 | 明确只需要异步操作，如 Redis 等远程存储 |
+
+大多数情况下，推荐使用 `Store` trait，它同时提供同步和异步能力。
+
 ## 快速开始
 
 ```rust
 use rustx::kv::store::{register_hash_stores, Store, SetOptions};
 use rustx::cfg::{TypeOptions, create_trait_from_type_options};
 
-// 1. 注册 Store 类型
+// 1. 一次性注册所有接口类型
 register_hash_stores::<String, String>()?;
 
 // 2. 通过配置创建 Store
@@ -21,9 +33,13 @@ let opts = TypeOptions::from_json(r#"{
 
 let store: Box<dyn Store<String, String>> = create_trait_from_type_options(&opts)?;
 
-// 3. 使用 Store
+// 3. 使用 Store（同时支持同步和异步方法）
 store.set(&"key".to_string(), &"value".to_string(), &SetOptions::new()).await?;
 let value = store.get(&"key".to_string()).await?;
+
+// 或者使用同步方法
+store.set_sync(&"key2".to_string(), &"value2".to_string(), &SetOptions::new())?;
+let value2 = store.get_sync(&"key2".to_string())?;
 ```
 
 ## Store 配置选项
@@ -177,26 +193,30 @@ let opts = SetOptions::new().with_if_not_exist();
 
 ## 注册函数说明
 
-| 函数 | 支持的 Store | 前置条件 |
-|------|-------------|---------|
-| `register_hash_stores<K, V>()` | UnsafeHashMapStore, RwLockHashMapStore, DashMapStore, LoadableSyncStore | 无（LoadableSyncStore 使用时需先注册 Parser、Loader） |
-| `register_sync_stores<K, V>()` | 同上（注册为 `dyn SyncStore`） | 同上 |
-| `register_redis_stores<K, V>()` | RedisStore | 需先注册序列化器 |
+| 函数 | 支持的 Store | 类型约束 | 前置条件 |
+|------|-------------|---------|---------|
+| `register_hash_stores<K, V>()` | 内存哈希存储（DashMapStore 等） | 需要 `Hash` | 无 |
+| `register_stores<K, V>()` | Redis 等通用存储 | 无特殊约束 | 需先注册序列化器 |
+
+### 使用建议
+
+- **内存存储**：使用 `register_hash_stores()`，适用于需要在内存中缓存数据的场景
+- **Redis 存储**：使用 `register_stores()`，适用于分布式存储和持久化场景
 
 ## 使用示例
 
 ### RedisStore 完整示例
 
 ```rust
-use rustx::kv::store::{register_redis_stores, Store, SetOptions};
+use rustx::kv::store::{register_stores, Store, SetOptions};
 use rustx::kv::serializer::register_serde_serializers;
 use rustx::cfg::{TypeOptions, create_trait_from_type_options};
 
 // 先注册序列化器
 register_serde_serializers::<String>()?;
 
-// 再注册 Store
-register_redis_stores::<String, String>()?;
+// 一次性注册所有接口类型
+register_stores::<String, String>()?;
 
 // 创建 RedisStore
 let opts = TypeOptions::from_json(r#"{
@@ -211,7 +231,7 @@ let opts = TypeOptions::from_json(r#"{
 
 let store: Box<dyn Store<String, String>> = create_trait_from_type_options(&opts)?;
 
-// 使用 Store
+// 使用 Store（同时支持同步和异步方法）
 store.set(
     &"user:1".to_string(),
     &"Alice".to_string(),
@@ -219,6 +239,9 @@ store.set(
 ).await?;
 
 let value = store.get(&"user:1".to_string()).await?;
+
+// 或者使用同步方法
+let value2 = store.get_sync(&"user:1".to_string())?;
 ```
 
 ### 批量操作示例

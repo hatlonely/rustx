@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::RwLock;
 
-use super::core::{IsSyncStore, KvError, SetOptions, Store, SyncStore};
+use super::core::{IsSyncStore, KvError, SetOptions, Store, AsyncStore, SyncStore};
 
 /// MapStore 配置结构体
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, SmartDefault, Validate)]
@@ -176,13 +176,13 @@ where
     }
 }
 
-impl<K, V> From<Box<RwLockHashMapStore<K, V>>> for Box<dyn Store<K, V>>
+impl<K, V> From<Box<RwLockHashMapStore<K, V>>> for Box<dyn AsyncStore<K, V>>
 where
     K: Clone + Send + Sync + Eq + Hash + 'static,
     V: Clone + Send + Sync + 'static,
 {
     fn from(source: Box<RwLockHashMapStore<K, V>>) -> Self {
-        source as Box<dyn Store<K, V>>
+        source as Box<dyn AsyncStore<K, V>>
     }
 }
 
@@ -193,6 +193,16 @@ where
 {
     fn from(source: Box<RwLockHashMapStore<K, V>>) -> Self {
         source as Box<dyn SyncStore<K, V>>
+    }
+}
+
+impl<K, V> From<Box<RwLockHashMapStore<K, V>>> for Box<dyn Store<K, V>>
+where
+    K: Clone + Send + Sync + Eq + Hash + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+    fn from(source: Box<RwLockHashMapStore<K, V>>) -> Self {
+        source as Box<dyn Store<K, V>>
     }
 }
 

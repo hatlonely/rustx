@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use std::hash::Hash;
 
-use super::core::{IsSyncStore, KvError, SetOptions, Store, SyncStore};
+use super::core::{IsSyncStore, KvError, SetOptions, Store, AsyncStore, SyncStore};
 
 /// DashMapStore 配置结构体
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, SmartDefault, Validate)]
@@ -164,13 +164,13 @@ where
     }
 }
 
-impl<K, V> From<Box<DashMapStore<K, V>>> for Box<dyn Store<K, V>>
+impl<K, V> From<Box<DashMapStore<K, V>>> for Box<dyn AsyncStore<K, V>>
 where
     K: Clone + Send + Sync + Eq + Hash + 'static,
     V: Clone + Send + Sync + 'static,
 {
     fn from(source: Box<DashMapStore<K, V>>) -> Self {
-        source as Box<dyn Store<K, V>>
+        source as Box<dyn AsyncStore<K, V>>
     }
 }
 
@@ -181,6 +181,16 @@ where
 {
     fn from(source: Box<DashMapStore<K, V>>) -> Self {
         source as Box<dyn SyncStore<K, V>>
+    }
+}
+
+impl<K, V> From<Box<DashMapStore<K, V>>> for Box<dyn Store<K, V>>
+where
+    K: Clone + Send + Sync + Eq + Hash + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+    fn from(source: Box<DashMapStore<K, V>>) -> Self {
+        source as Box<dyn Store<K, V>>
     }
 }
 

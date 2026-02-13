@@ -5,7 +5,7 @@ use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use super::core::{IsSyncStore, KvError, SetOptions, Store, SyncStore};
+use super::core::{IsSyncStore, KvError, SetOptions, Store, AsyncStore, SyncStore};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, SmartDefault, Validate)]
 #[serde(default)]
@@ -202,13 +202,13 @@ where
     }
 }
 
-impl<K, V> From<Box<UnsafeHashMapStore<K, V>>> for Box<dyn Store<K, V>>
+impl<K, V> From<Box<UnsafeHashMapStore<K, V>>> for Box<dyn AsyncStore<K, V>>
 where
     K: Clone + Send + Sync + Eq + Hash + 'static,
     V: Clone + Send + Sync + 'static,
 {
     fn from(source: Box<UnsafeHashMapStore<K, V>>) -> Self {
-        source as Box<dyn Store<K, V>>
+        source as Box<dyn AsyncStore<K, V>>
     }
 }
 
@@ -219,6 +219,16 @@ where
 {
     fn from(source: Box<UnsafeHashMapStore<K, V>>) -> Self {
         source as Box<dyn SyncStore<K, V>>
+    }
+}
+
+impl<K, V> From<Box<UnsafeHashMapStore<K, V>>> for Box<dyn Store<K, V>>
+where
+    K: Clone + Send + Sync + Eq + Hash + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+    fn from(source: Box<UnsafeHashMapStore<K, V>>) -> Self {
+        source as Box<dyn Store<K, V>>
     }
 }
 
