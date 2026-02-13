@@ -35,3 +35,11 @@
 - 快速开始部分需要包含简洁的样例代码，给出一两种典型场景的使用
 - 配置说明部分以每个具体类的 Config 的 json5 配置样例说明，需要包含所有字段，灵活使用注释说明不常用的配置用法
 - 样例文件中的配置统一使用 `json5::from_str` 来构造
+
+# 性能测试规范
+
+- 性能测试放在 benches/ 目录，综合性能测试命名为 `{mod}_{submod}_benchmark.rs`，单文件性能测试命名为 `{filepath}_benchmark.rs`：
+  - 比如 kv_store_benchmark.rs 表示 kv/store 模块的性能测试
+  - kv_store_dashmap_store_benchmark.rs 表示 kv/stroe/dashmap_store.rs 文件的性能测试
+- 性能测试使用 criterion 框架，性能测试方法以 `benchmark_{group}` 命名，同时 group 也是 criterion 的 benchmark_group
+- 性能测试需要一组什么都不做的基准测试，其命名为 baseline

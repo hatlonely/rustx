@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 use rustx::log::{TextFormatter, TextFormatterConfig, LogLevel, LogRecord, LogFormatter};
 
-fn benchmark_format(c: &mut Criterion) {
+fn benchmark_formatter(c: &mut Criterion) {
     let formatter_colored = TextFormatter::new(TextFormatterConfig { colored: true });
     let formatter_plain = TextFormatter::new(TextFormatterConfig { colored: false });
 
@@ -26,6 +26,13 @@ fn benchmark_format(c: &mut Criterion) {
     );
 
     let mut group = c.benchmark_group("formatter");
+
+    // Baseline: 什么都不做的基准测试
+    group.bench_function("baseline", |b| {
+        b.iter(|| {
+            black_box(());
+        })
+    });
 
     // 测试不同场景
     let cases: [(&str, &LogRecord); 3] = [
@@ -59,15 +66,23 @@ fn benchmark_format(c: &mut Criterion) {
     group.finish();
 }
 
-fn benchmark_format_throughput(c: &mut Criterion) {
+fn benchmark_throughput(c: &mut Criterion) {
     let formatter = TextFormatter::new(TextFormatterConfig { colored: false });
+
+    let mut group = c.benchmark_group("throughput");
+    group.throughput(criterion::Throughput::Elements(1));
+
+    // Baseline: 什么都不做的基准测试
+    group.bench_function("baseline", |b| {
+        b.iter(|| {
+            black_box(());
+        })
+    });
 
     // 测试不同级别的吞吐量
     for level in [LogLevel::Error, LogLevel::Warn, LogLevel::Info, LogLevel::Debug] {
         let record = LogRecord::new(level, "Benchmark message".to_string());
 
-        let mut group = c.benchmark_group("throughput");
-        group.throughput(criterion::Throughput::Elements(1));
         group.bench_with_input(
             BenchmarkId::from_parameter(format!("{:?}", level)),
             &record,
@@ -77,9 +92,10 @@ fn benchmark_format_throughput(c: &mut Criterion) {
                 })
             },
         );
-        group.finish();
     }
+
+    group.finish();
 }
 
-criterion_group!(benches, benchmark_format, benchmark_format_throughput);
+criterion_group!(benches, benchmark_formatter, benchmark_throughput);
 criterion_main!(benches);
