@@ -104,6 +104,11 @@ name = "text_formatter_benchmark"
 path = "benches/log/formatter/text_formatter_benchmark.rs"
 harness = false
 
+[[bench]]
+name = "store_benchmark"
+path = "benches/kv/store_benchmark.rs"
+harness = false
+
 [[bin]]
 name = "oss"
 path = "src/bin/oss/main.rs"
