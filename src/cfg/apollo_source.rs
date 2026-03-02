@@ -5,6 +5,8 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -54,6 +56,7 @@ struct ApolloNotification {
 /// - `watch` 方法仅监听配置**变化**，不会在启动时立即触发回调
 /// - 如需获取初始配置，应先调用 `load` 方法，再调用 `watch` 监听后续变化
 /// - 使用 Apollo 长轮询机制实现配置变更通知
+/// - 所有 watch 调用共享一个长轮询线程，自动检测配置变化
 ///
 /// # 示例
 /// ```no_run
@@ -86,6 +89,10 @@ pub struct ApolloSource {
     cluster: String,
     /// HTTP 客户端
     client: reqwest::blocking::Client,
+    /// 存储 key -> handlers 的映射
+    handlers: Arc<Mutex<HashMap<String, Vec<Box<dyn Fn(ConfigChange) + Send + Sync>>>>>,
+    /// 存储每个 key 当前配置值，用于对比变化
+    current_values: Arc<Mutex<HashMap<String, serde_json::Value>>>,
 }
 
 impl ApolloSource {
@@ -94,15 +101,180 @@ impl ApolloSource {
     /// # 参数
     /// - `config`: Apollo 配置源配置
     pub fn new(config: ApolloSourceConfig) -> Result<Self> {
-        Ok(Self {
-            server_url: config.server_url.trim_end_matches('/').to_string(),
-            app_id: config.app_id,
-            namespace: config.namespace,
-            cluster: config.cluster,
+        let server_url = config.server_url.trim_end_matches('/').to_string();
+        let app_id = config.app_id.clone();
+        let cluster = config.cluster.clone();
+        let namespace = config.namespace.clone();
+
+        let source = Self {
+            server_url,
+            app_id,
+            namespace,
+            cluster,
             client: reqwest::blocking::Client::builder()
                 .timeout(Duration::from_secs(90))
                 .build()?,
-        })
+            handlers: Arc::new(Mutex::new(HashMap::new())),
+            current_values: Arc::new(Mutex::new(HashMap::new())),
+        };
+
+        // 启动长轮询线程
+        source.start_watch_thread();
+
+        Ok(source)
+    }
+
+    /// 启动长轮询监听线程
+    fn start_watch_thread(&self) {
+        let url = format!("{}/notifications/v2", self.server_url);
+        let client = self.client.clone();
+        let app_id = self.app_id.clone();
+        let cluster = self.cluster.clone();
+        let namespace = self.namespace.clone();
+        let server_url = self.server_url.clone();
+        let handlers = self.handlers.clone();
+        let current_values = self.current_values.clone();
+
+        thread::spawn(move || {
+            let mut notification_id = -1i64;
+            let mut is_first_notification = true;
+
+            loop {
+                // Apollo 长轮询
+                let params = serde_json::json!([{
+                    "namespaceName": namespace,
+                    "notificationId": notification_id,
+                }]);
+
+                match client
+                    .get(&url)
+                    .query(&[
+                        ("appId", app_id.as_str()),
+                        ("cluster", cluster.as_str()),
+                        ("notifications", &params.to_string()),
+                    ])
+                    .timeout(Duration::from_secs(90))
+                    .send()
+                {
+                    Ok(resp) if resp.status().is_success() => {
+                        // 收到配置变更通知
+                        if let Ok(notifications) = resp.json::<Vec<ApolloNotification>>() {
+                            if let Some(notif) = notifications.first() {
+                                let new_id = notif.notification_id;
+                                if new_id != notification_id {
+                                    notification_id = new_id;
+
+                                    // 如果是首次收到通知，仅更新 notification_id，不触发回调
+                                    if is_first_notification {
+                                        is_first_notification = false;
+                                        continue;
+                                    }
+
+                                    // 配置有更新，重新加载并分发变化
+                                    Self::handle_config_change(
+                                        &server_url,
+                                        &app_id,
+                                        &cluster,
+                                        &namespace,
+                                        &handlers,
+                                        &current_values,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    Ok(resp) if resp.status().as_u16() == 304 => {
+                        // 304 表示配置未变化，继续长轮询
+                    }
+                    Err(_) | Ok(_) => {
+                        // 网络错误或超时，等待后重试
+                        thread::sleep(Duration::from_secs(5));
+                    }
+                }
+
+                // 短暂休眠，避免紧密循环
+                thread::sleep(Duration::from_millis(100));
+            }
+        });
+    }
+
+    /// 处理配置变更
+    fn handle_config_change(
+        server_url: &str,
+        app_id: &str,
+        cluster: &str,
+        namespace: &str,
+        handlers: &Arc<Mutex<HashMap<String, Vec<Box<dyn Fn(ConfigChange) + Send + Sync>>>>>,
+        current_values: &Arc<Mutex<HashMap<String, serde_json::Value>>>,
+    ) {
+        // 重新加载 namespace 配置
+        let fetch_url = format!("{}/configs/{}/{}/{}", server_url, app_id, cluster, namespace);
+
+        match reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .and_then(|client| client.get(&fetch_url).send())
+        {
+            Ok(config_resp) if config_resp.status().is_success() => {
+                if let Ok(apollo_resp) = config_resp.json::<ApolloResponse>() {
+                    // 加锁获取 handlers 和 current_values
+                    let handlers_guard = handlers.lock().unwrap();
+                    let mut current_values_guard = current_values.lock().unwrap();
+
+                    // 遍历所有已注册的 key
+                    for (key, handler_list) in handlers_guard.iter() {
+                        if let Some(config_value) = apollo_resp.configurations.get(key) {
+                            // 解析新值
+                            let new_value = if let Some(config_str) = config_value.as_str() {
+                                serde_json::from_str(config_str).ok()
+                            } else {
+                                Some(config_value.clone())
+                            };
+
+                            if let Some(v) = new_value {
+                                // 检查是否有变化
+                                let has_changed = match current_values_guard.get(key) {
+                                    Some(old_value) => old_value != &v,
+                                    None => true,
+                                };
+
+                                if has_changed {
+                                    // 更新当前值
+                                    current_values_guard.insert(key.clone(), v.clone());
+
+                                    // 触发所有 handlers
+                                    for handler in handler_list {
+                                        handler(ConfigChange::Updated(ConfigValue::new(v.clone())));
+                                    }
+                                }
+                            } else {
+                                // 解析失败，触发错误回调
+                                for handler in handler_list {
+                                    handler(ConfigChange::Error("解析配置失败".to_string()));
+                                }
+                            }
+                        } else {
+                            // 配置被删除
+                            if current_values_guard.remove(key).is_some() {
+                                for handler in handler_list {
+                                    handler(ConfigChange::Deleted);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(_) => {
+                // 请求失败，触发所有 handlers 的错误回调
+                let handlers_guard = handlers.lock().unwrap();
+                for handler_list in handlers_guard.values() {
+                    for handler in handler_list {
+                        handler(ConfigChange::Error("重新加载配置失败".to_string()));
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -153,145 +325,18 @@ impl ConfigSource for ApolloSource {
     }
 
     fn watch(&self, key: &str, handler: Box<dyn Fn(ConfigChange) + Send + Sync + 'static>) -> Result<()> {
-        let url = format!("{}/notifications/v2", self.server_url);
-        let client = self.client.clone();
-        let app_id = self.app_id.clone();
-        let cluster = self.cluster.clone();
-        let namespace = self.namespace.clone();
-        let key_owned = key.to_string();
+        // 加锁注册 handler
+        let mut handlers = self.handlers.lock().unwrap();
+        handlers
+            .entry(key.to_string())
+            .or_insert_with(Vec::new)
+            .push(handler);
 
-        // 为了能在 watch 线程中调用 load，我们需要克隆必要的字段
-        let server_url = self.server_url.clone();
-
-        // 启动监听线程
-        let _thread_handle = thread::spawn(move || {
-            let mut notification_id = -1i64;
-            let mut is_first_notification = true; // 标记是否是首次收到通知
-
-            loop {
-                // Apollo 长轮询
-                let params = serde_json::json!([{
-                    "namespaceName": namespace,
-                    "notificationId": notification_id,
-                }]);
-
-                match client
-                    .get(&url)
-                    .query(&[
-                        ("appId", app_id.as_str()),
-                        ("cluster", cluster.as_str()),
-                        ("notifications", &params.to_string()),
-                    ])
-                    .timeout(Duration::from_secs(90))
-                    .send()
-                {
-                    Ok(resp) if resp.status().is_success() => {
-                        // 收到配置变更通知
-                        if let Ok(notifications) = resp.json::<Vec<ApolloNotification>>() {
-                            if let Some(notif) = notifications.first() {
-                                let new_id = notif.notification_id;
-                                if new_id != notification_id {
-                                    notification_id = new_id;
-
-                                    // 如果是首次收到通知，仅更新 notification_id，不触发回调
-                                    if is_first_notification {
-                                        is_first_notification = false;
-                                        continue; // 跳过本次回调触发，继续下一轮长轮询
-                                    }
-
-                                    // 配置有更新，重新加载
-                                    // 构建临时的 ApolloSource 来加载配置
-                                    match reqwest::blocking::Client::builder()
-                                        .timeout(Duration::from_secs(30))
-                                        .build()
-                                    {
-                                        Ok(temp_client) => {
-                                            let fetch_url = format!(
-                                                "{}/configs/{}/{}/{}",
-                                                server_url, app_id, cluster, namespace
-                                            );
-
-                                            match temp_client.get(&fetch_url).send() {
-                                                Ok(config_resp)
-                                                    if config_resp.status().is_success() =>
-                                                {
-                                                    if let Ok(apollo_resp) =
-                                                        config_resp.json::<ApolloResponse>()
-                                                    {
-                                                        if let Some(config_value) = apollo_resp
-                                                            .configurations
-                                                            .get(&key_owned)
-                                                        {
-                                                            let value = if let Some(config_str) =
-                                                                config_value.as_str()
-                                                            {
-                                                                serde_json::from_str(config_str)
-                                                            } else {
-                                                                Ok(config_value.clone())
-                                                            };
-
-                                                            match value {
-                                                                Ok(v) => {
-                                                                    handler(ConfigChange::Updated(
-                                                                        ConfigValue::new(v),
-                                                                    ));
-                                                                }
-                                                                Err(e) => {
-                                                                    handler(ConfigChange::Error(
-                                                                        format!(
-                                                                            "解析配置失败: {}",
-                                                                            e
-                                                                        ),
-                                                                    ));
-                                                                }
-                                                            }
-                                                        } else {
-                                                            handler(ConfigChange::Deleted);
-                                                        }
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    handler(ConfigChange::Error(format!(
-                                                        "重新加载配置失败: {}",
-                                                        e
-                                                    )));
-                                                }
-                                                _ => {}
-                                            }
-                                        }
-                                        Err(e) => {
-                                            handler(ConfigChange::Error(format!(
-                                                "创建 HTTP 客户端失败: {}",
-                                                e
-                                            )));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Ok(resp) if resp.status().as_u16() == 304 => {
-                        // 304 表示配置未变化，继续长轮询
-                    }
-                    Err(e) => {
-                        // 网络错误或超时，等待后重试
-                        handler(ConfigChange::Error(format!("请求失败: {}", e)));
-                        thread::sleep(Duration::from_secs(5));
-                    }
-                    Ok(resp) => {
-                        // 其他错误状态码
-                        handler(ConfigChange::Error(format!(
-                            "Apollo 返回错误状态: {}",
-                            resp.status()
-                        )));
-                        thread::sleep(Duration::from_secs(5));
-                    }
-                }
-
-                // 短暂休眠，避免紧密循环
-                thread::sleep(Duration::from_millis(100));
-            }
-        });
+        // 记录当前配置值（用于后续对比变化）
+        if let Ok(config) = self.load(key) {
+            let mut current_values = self.current_values.lock().unwrap();
+            current_values.insert(key.to_string(), config.as_value().clone());
+        }
 
         Ok(())
     }
