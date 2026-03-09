@@ -30,7 +30,7 @@ fn main() -> anyhow::Result<()> {
     println!("✓ 创建 FileSource 成功");
 
     // 使用 FileSource 加载配置
-    match file_source.load("database") {
+    match file_source.load("database.json5", None) {
         Ok(config_value) => {
             match config_value.into_type::<DatabaseConfig>() {
                 Ok(db_config) => {
@@ -53,7 +53,6 @@ fn main() -> anyhow::Result<()> {
         "options": {
             "server_url": "http://localhost:8080",
             "app_id": "sample-app",
-            "namespace": "application",
             "cluster": "default"
         }
     }"#)?;
@@ -62,7 +61,7 @@ fn main() -> anyhow::Result<()> {
     println!("✓ 创建 ApolloSource 成功");
 
     // 尝试加载配置（如果没有实际的服务器会失败）
-    match apollo_source.load("database") {
+    match apollo_source.load("application/database", None) {
         Ok(_) => {
             println!("  - 加载 Apollo 配置成功");
         }

@@ -25,9 +25,15 @@ let source = FileSource::new(FileSourceConfig {
     base_path: "config".to_string(),
 });
 
-// 加载配置文件 config/database.json
-let config: DatabaseConfig = source.load("database")?.into_type()?;
+// 加载配置文件 config/database.json（key 包含完整文件名）
+let config: DatabaseConfig = source.load("database.json", None)?.into_type()?;
 println!("数据库: {}:{}", config.host, config.port);
+
+// 加载 YAML 配置文件 config/app.yaml
+let app_config: AppConfig = source.load("app.yaml", None)?.into_type()?;
+
+// 显式指定格式（忽略文件扩展名）
+let config: DatabaseConfig = source.load("data.cfg", Some("yaml"))?.into_type()?;
 ```
 
 ### 2. 自动创建与热更新
@@ -71,11 +77,11 @@ let source = FileSource::new(FileSourceConfig {
     base_path: "config".to_string(),
 });
 
-// 一次性创建
-let service: DatabaseService = source.create::<DatabaseService, DatabaseConfig>("database")?;
+// 一次性创建（key 包含文件扩展名）
+let service: DatabaseService = source.create::<DatabaseService, DatabaseConfig>("database.json", None)?;
 
 // 创建并自动监听配置变化
-let service = source.create_with_watch::<DatabaseService, DatabaseConfig>("database")?;
+let service = source.create_with_watch::<DatabaseService, DatabaseConfig>("database.json", None)?;
 // 修改 config/database.json 后自动调用 reload_config
 ```
 
@@ -107,7 +113,7 @@ impl From<Box<RedisCache>> for Box<dyn Cache> { fn from(c: Box<RedisCache>) -> S
 register_trait::<RedisCache, dyn Cache, RedisConfig>("redis")?;
 
 // 配置文件 cache.json: { "type": "redis", "options": {...} }
-let cache: Arc<RwLock<Box<dyn Cache>>> = source.create_trait_with_watch::<dyn Cache, RedisConfig>("cache")?;
+let cache: Arc<RwLock<Box<dyn Cache>>> = source.create_trait_with_watch::<dyn Cache, RedisConfig>("cache.json", None)?;
 // 修改 type 字段可切换不同实现
 ```
 
@@ -120,7 +126,7 @@ let source = FileSource::new(FileSourceConfig {
     base_path: "config".to_string(),
 });
 
-source.watch("database", Box::new(|change| {
+source.watch("database.json", None, Box::new(|change| {
     match change {
         ConfigChange::Updated(value) => {
             println!("配置已更新: {:?}", value.as_value());
@@ -139,12 +145,27 @@ use rustx::cfg::{ApolloSource, ApolloSourceConfig, ConfigSource};
 let source = ApolloSource::new(ApolloSourceConfig {
     server_url: "http://localhost:8080".to_string(),
     app_id: "my-app".to_string(),
-    namespace: "application".to_string(),
     cluster: "default".to_string(),
 })?;
 
-let config: DatabaseConfig = source.load("database")?.into_type()?;
+// 使用 namespace/key 格式加载配置
+let config: DatabaseConfig = source.load("application/database", None)?.into_type()?;
+
+// 支持访问不同的 namespace
+let redis_config: RedisConfig = source.load("redis/config", None)?.into_type()?;
+
+// key 中可以包含其他字符（如 .），但不能包含 /
+let cache_config = source.load("application/cache.redis", None)?.into_type()?;
+
+// 支持多种格式
+let yaml_config: AppConfig = source.load("application/app", Some("yaml"))?.into_type()?;
 ```
+
+**Key 格式说明：**
+- 使用 `namespace/key` 格式，例如 `application/database`、`redis/config`
+- 必须包含 `/` 分隔符，例如 `redis.config`（缺少分隔符）会报错
+- namespace 和 key 都不能包含 `/` 字符
+- 每个 namespace 会自动建立独立的长轮询监听
 
 ### 5. Trait 注册
 
@@ -249,11 +270,53 @@ let cache: Box<dyn Cache> = create_trait_from_type_options(&TypeOptions {
 - **工厂模式**：基于类型名称和配置的动态实例创建
 - **零耦合**：配置与业务逻辑完全分离
 
-## 支持格式
+## 配置格式说明
 
-- **JSON**: `.json`
-- **YAML**: `.yaml`, `.yml`  
-- **TOML**: `.toml`
+### FileSource 格式支持
+
+FileSource 的 key 必须包含完整的文件名（含扩展名）：
+
+- **JSON**: `.json`、`.json5` - 自动识别
+- **YAML**: `.yaml`、`.yml` - 自动识别
+- **TOML**: `.toml` - 自动识别
+
+**示例：**
+```rust
+// 自动推断格式（根据文件扩展名）
+source.load("config.json", None)?;
+source.load("config.yaml", None)?;
+source.load("config.toml", None)?;
+
+// 显式指定格式（覆盖扩展名推断）
+source.load("data.cfg", Some("yaml"))?;
+source.load("config.txt", Some("json"))?;
+```
+
+### ApolloSource 格式支持
+
+ApolloSource 支持从 Apollo 配置中心加载多种格式的配置字符串：
+
+- **JSON**: 默认格式，`format = None` 或 `Some("json")`
+- **YAML**: `Some("yaml")`
+- **TOML**: `Some("toml")`
+
+**Key 格式说明：**
+- 使用 `namespace/key` 格式，例如 `application/database`、`redis/config`
+- 必须包含 `/` 分隔符
+- namespace 和 key 都不能包含 `/` 字符
+- 每个 namespace 会自动建立独立的长轮询监听
+
+**示例：**
+```rust
+// 默认 JSON 格式
+source.load("application/database", None)?;
+
+// 显式指定 YAML 格式
+source.load("application/config", Some("yaml"))?;
+
+// 显式指定 TOML 格式
+source.load("app/settings", Some("toml"))?;
+```
 
 ## 核心特性
 

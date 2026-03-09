@@ -51,12 +51,12 @@ fn main() -> anyhow::Result<()> {
 
     // 2. 一次性创建对象（无热更新）
     println!("=== 一次性创建 ===");
-    let service: DatabaseService = source.create::<DatabaseService, DatabaseConfig>("database")?;
+    let service: DatabaseService = source.create::<DatabaseService, DatabaseConfig>("database.json5", None)?;
     println!("连接信息: {}\n", service.connection_info());
 
     // 3. 创建对象并自动监听配置变化（支持热更新）
     println!("=== 创建并监听配置变化 ===");
-    let service = source.create_with_watch::<DatabaseService, DatabaseConfig>("database")?;
+    let service = source.create_with_watch::<DatabaseService, DatabaseConfig>("database.json5", None)?;
 
     // 读取当前配置
     {

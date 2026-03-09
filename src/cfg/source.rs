@@ -77,16 +77,18 @@ pub trait ConfigSource: Send + Sync {
     ///
     /// # 参数
     /// - `key`: 配置键
+    /// - `format`: 配置格式，支持 "json", "json5", "yaml", "toml"，None 表示自动推断
     ///
     /// # 返回
     /// - 成功返回 ConfigValue，可通过 into_type() 转换为具体类型
     /// - 失败返回错误信息
-    fn load(&self, key: &str) -> Result<ConfigValue>;
+    fn load(&self, key: &str, format: Option<&str>) -> Result<ConfigValue>;
 
     /// 监听配置变化
     ///
     /// # 参数
     /// - `key`: 配置键
+    /// - `format`: 配置格式，支持 "json", "json5", "yaml", "toml"，None 表示自动推断
     /// - `handler`: 配置变化时的回调函数
     ///
     /// # 生命周期
@@ -107,7 +109,7 @@ pub trait ConfigSource: Send + Sync {
     /// let source = FileSource::new(FileSourceConfig {
     ///     base_path: "config".to_string(),
     /// });
-    /// source.watch("database", |change| {
+    /// source.watch("database", None, |change| {
     ///     match change {
     ///         ConfigChange::Updated(value) => {
     ///             match value.into_type::<DatabaseConfig>() {
@@ -120,5 +122,5 @@ pub trait ConfigSource: Send + Sync {
     ///     }
     /// }).unwrap();
     /// ```
-    fn watch(&self, key: &str, handler: Box<dyn Fn(ConfigChange) + Send + Sync + 'static>) -> Result<()>;
+    fn watch(&self, key: &str, format: Option<&str>, handler: Box<dyn Fn(ConfigChange) + Send + Sync + 'static>) -> Result<()>;
 }

@@ -79,7 +79,7 @@ mod tests {
         let source: Box<dyn ConfigSource> = create_trait_from_type_options(&opts)?;
 
         // 测试加载配置
-        let config = source.load("test")?;
+        let config = source.load("test.json", None)?;
         assert_eq!(config.as_value()["host"], "localhost");
         assert_eq!(config.as_value()["port"], 3306);
 
@@ -107,7 +107,7 @@ mod tests {
 
         // 验证 source 可以正常创建（实际加载需要连接 Apollo 服务器）
         // 这里我们只测试对象创建是否成功
-        let result = source.load("test");
+        let result = source.load("test.json", None);
 
         // 应该失败，因为没有实际的 Apollo 服务器
         assert!(result.is_err());
@@ -195,7 +195,7 @@ mod tests {
         let source: Box<dyn ConfigSource> = create_trait_from_type_options(&opts)?;
 
         // 加载并反序列化为具体类型
-        let config_value = source.load("app")?;
+        let config_value = source.load("app.json", None)?;
         let config: TestConfig = config_value.into_type()?;
 
         assert_eq!(config.name, "test-app");

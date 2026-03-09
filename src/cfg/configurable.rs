@@ -44,11 +44,11 @@ use super::type_options::TypeOptions;
 ///     base_path: "config".to_string(),
 /// });
 ///
-/// // 一次性创建
-/// let service: DatabaseService = source.create("database").unwrap();
+/// // 一次性创建（自动推断格式）
+/// let service: DatabaseService = source.create("database", None).unwrap();
 ///
-/// // 创建并自动监听
-/// let service = source.create_with_watch::<DatabaseService, DatabaseConfig>("database").unwrap();
+/// // 创建并自动监听（显式指定 JSON 格式）
+/// let service = source.create_with_watch::<DatabaseService, DatabaseConfig>("database", Some("json")).unwrap();
 /// ```
 pub trait Configurable: ConfigSource {
     /// 创建对象（一次性）
@@ -61,15 +61,16 @@ pub trait Configurable: ConfigSource {
     ///
     /// # 参数
     /// - `key`: 配置键
+    /// - `format`: 配置格式，支持 "json", "json5", "yaml", "toml"，None 表示自动推断
     ///
     /// # 返回
     /// - 成功返回创建的对象实例
-    fn create<T, Config>(&self, key: &str) -> Result<T>
+    fn create<T, Config>(&self, key: &str, format: Option<&str>) -> Result<T>
     where
         T: From<Config> + Send + Sync + 'static,
         Config: DeserializeOwned + Clone + Send + Sync + 'static,
     {
-        let config_value = self.load(key)?;
+        let config_value = self.load(key, format)?;
         let config: Config = config_value.into_type()?;
         Ok(T::from(config))
     }
@@ -84,6 +85,7 @@ pub trait Configurable: ConfigSource {
     ///
     /// # 参数
     /// - `key`: 配置键
+    /// - `format`: 配置格式，支持 "json", "json5", "yaml", "toml"，None 表示自动推断
     ///
     /// # 返回
     /// - 成功返回包装在 Arc<RwLock<T>> 中的对象实例
@@ -97,13 +99,14 @@ pub trait Configurable: ConfigSource {
     fn create_with_watch<T, Config>(
         &self,
         key: &str,
+        format: Option<&str>,
     ) -> Result<Arc<RwLock<T>>>
     where
         T: From<Config> + crate::cfg::ConfigReloader<Config> + Send + Sync + 'static,
         Config: DeserializeOwned + Clone + Send + Sync + 'static,
     {
         // 加载初始配置
-        let config_value = self.load(key)?;
+        let config_value = self.load(key, format)?;
         let config: Config = config_value.into_type()?;
         let instance = T::from(config);
         let instance = Arc::new(RwLock::new(instance));
@@ -111,7 +114,7 @@ pub trait Configurable: ConfigSource {
 
         // 监听配置变化
         let key_owned = key.to_string();
-        self.watch(key, Box::new(move |change| {
+        self.watch(key, format, Box::new(move |change| {
             if let ConfigChange::Updated(config_value) = change {
                 match config_value.into_type::<Config>() {
                     Ok(new_config) => {
@@ -146,6 +149,7 @@ pub trait Configurable: ConfigSource {
     ///
     /// # 参数
     /// - `key`: 配置键，配置内容需包含 type 和 options 字段
+    /// - `format`: 配置格式，支持 "json", "json5", "yaml", "toml"，None 表示自动推断
     ///
     /// # 返回
     /// - 成功返回包装在 Arc<RwLock<Box<Trait>>> 中的 trait object
@@ -164,13 +168,14 @@ pub trait Configurable: ConfigSource {
     fn create_trait_with_watch<Trait, Config>(
         &self,
         key: &str,
+        format: Option<&str>,
     ) -> Result<Arc<RwLock<Box<Trait>>>>
     where
         Trait: ?Sized + Send + Sync + 'static,
         Config: DeserializeOwned + Clone + Send + Sync + 'static,
     {
         // 加载 TypeOptions
-        let config_value = self.load(key)?;
+        let config_value = self.load(key, format)?;
         let type_options: TypeOptions = config_value.into_type()?;
 
         // 通过 registry 创建 trait object
@@ -182,7 +187,7 @@ pub trait Configurable: ConfigSource {
 
         // 监听配置变化
         let key_owned = key.to_string();
-        self.watch(key, Box::new(move |change| {
+        self.watch(key, format, Box::new(move |change| {
             if let ConfigChange::Updated(config_value) = change {
                 match config_value.into_type::<TypeOptions>() {
                     Ok(new_type_options) => {
@@ -259,7 +264,7 @@ mod tests {
 
         // 虽然是 dyn ConfigSource，但可以调用 create 方法
         // 因为 Configurable 为 dyn ConfigSource 实现了
-        let _result: Result<TestService> = source.create::<TestService, TestConfig>("test");
+        let _result: Result<TestService> = source.create::<TestService, TestConfig>("test", None);
         // 注意：这里只是测试编译，实际运行需要配置文件存在
     }
 
@@ -271,7 +276,7 @@ mod tests {
         });
 
         // FileSource 实现了 ConfigSource，所以自动获得 Configurable 方法
-        let _result: Result<TestService> = source.create::<TestService, TestConfig>("test");
+        let _result: Result<TestService> = source.create::<TestService, TestConfig>("test", None);
     }
 
     // ========== 完整的 Configurable 功能测试 ==========
@@ -314,7 +319,7 @@ mod tests {
             base_path: temp_dir.path().to_string_lossy().to_string(),
         });
 
-        let service: TestService2 = source.create::<TestService2, TestServiceConfig>("create_test")?;
+        let service: TestService2 = source.create::<TestService2, TestServiceConfig>("create_test.json", None)?;
 
         assert_eq!(service.config.name, "test-service");
         assert_eq!(service.config.count, 42);
@@ -333,7 +338,7 @@ mod tests {
             base_path: temp_dir.path().to_string_lossy().to_string(),
         });
 
-        let result: Result<TestService2> = source.create::<TestService2, TestServiceConfig>("invalid_test");
+        let result: Result<TestService2> = source.create::<TestService2, TestServiceConfig>("invalid_test.json", None);
         assert!(result.is_err());
     }
 
@@ -354,7 +359,7 @@ mod tests {
         });
 
         // 创建并监听
-        let service = source.create_with_watch::<TestService2, TestServiceConfig>("reload_test")?;
+        let service = source.create_with_watch::<TestService2, TestServiceConfig>("reload_test.json", None)?;
 
         // 验证初始配置
         {
@@ -427,7 +432,7 @@ mod tests {
             base_path: temp_dir.path().to_string_lossy().to_string(),
         });
 
-        let service = source.create_with_watch::<FailingService, FailingConfig>("failing_test")?;
+        let service = source.create_with_watch::<FailingService, FailingConfig>("failing_test.json", None)?;
 
         // 验证初始配置
         {
@@ -512,7 +517,7 @@ mod tests {
 
         // 创建并监听
         let service: Arc<RwLock<Box<dyn TestTrait>>> =
-            source.create_trait_with_watch::<dyn TestTrait, TraitServiceConfig>("trait_test")?;
+            source.create_trait_with_watch::<dyn TestTrait, TraitServiceConfig>("trait_test.json", None)?;
 
         // 验证初始配置
         {
@@ -534,6 +539,79 @@ mod tests {
         {
             let guard = service.read().unwrap();
             assert_eq!(guard.get_name(), "updated");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_configurable_create_with_explicit_format() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let config_path = temp_dir.path().join("format_test.data");
+
+        // 写入 YAML 格式配置
+        fs::write(
+            &config_path,
+            r#"name: yaml-service
+count: 100"#,
+        )?;
+
+        let source = FileSource::new(FileSourceConfig {
+            base_path: temp_dir.path().to_string_lossy().to_string(),
+        });
+
+        // 使用显式格式创建对象
+        let service: TestService2 = source.create::<TestService2, TestServiceConfig>("format_test.data", Some("yaml"))?;
+
+        assert_eq!(service.config.name, "yaml-service");
+        assert_eq!(service.config.count, 100);
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_configurable_create_with_watch_and_explicit_format() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let config_path = temp_dir.path().join("watch_format_test.cfg");
+
+        // 写入初始 TOML 配置
+        fs::write(
+            &config_path,
+            r#"name = "initial"
+count = 1"#,
+        )?;
+
+        let source = FileSource::new(FileSourceConfig {
+            base_path: temp_dir.path().to_string_lossy().to_string(),
+        });
+
+        // 使用显式格式创建并监听
+        let service = source.create_with_watch::<TestService2, TestServiceConfig>("watch_format_test.cfg", Some("toml"))?;
+
+        // 验证初始配置
+        {
+            let guard = service.read().unwrap();
+            assert_eq!(guard.config.name, "initial");
+            assert_eq!(guard.config.count, 1);
+        }
+
+        thread::sleep(Duration::from_millis(200));
+
+        // 修改配置
+        fs::write(
+            &config_path,
+            r#"name = "updated"
+count = 2"#,
+        )?;
+
+        thread::sleep(Duration::from_millis(500));
+
+        // 验证配置已更新
+        {
+            let guard = service.read().unwrap();
+            assert_eq!(guard.config.name, "updated");
+            assert_eq!(guard.config.count, 2);
         }
 
         Ok(())

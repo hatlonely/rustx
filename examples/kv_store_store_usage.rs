@@ -22,7 +22,7 @@ async fn main() -> Result<()> {
         base_path: "examples/configs/kv_store".to_string(),
     });
 
-    let type_options: TypeOptions = source.load("redis_store")?.into_type()?;
+    let type_options: TypeOptions = source.load("redis_store.json5", None)?.into_type()?;
     println!("   类型: {}", type_options.type_name);
     println!("   配置: {}\n", type_options.options);
 

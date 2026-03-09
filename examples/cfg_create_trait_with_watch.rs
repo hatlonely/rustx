@@ -123,7 +123,7 @@ fn main() -> anyhow::Result<()> {
     // 3. 从配置创建并自动监听 trait object
     println!("=== 创建 Trait Object 并监听配置变化 ===");
     let cache: Arc<RwLock<Box<dyn Cache>>> =
-        source.create_trait_with_watch::<dyn Cache, RedisCacheConfig>("cache")?;
+        source.create_trait_with_watch::<dyn Cache, RedisCacheConfig>("cache.json5", None)?;
 
     // 4. 使用缓存
     {

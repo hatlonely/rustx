@@ -98,9 +98,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // 从文件加载配置
-    let log_config: LoggerManagerConfig = source.load("log")?.into_type()?;
-    let aop_config: AopManagerConfig = source.load("aop")?.into_type()?;
-    let service_config: MyEchoServiceConfig = source.load("service")?.into_type()?;
+    let log_config: LoggerManagerConfig = source.load("log.json5", None)?.into_type()?;
+    let aop_config: AopManagerConfig = source.load("aop.json5", None)?.into_type()?;
+    let service_config: MyEchoServiceConfig = source.load("service.json5", None)?.into_type()?;
 
     // 初始化全局 logger manager
     rustx::log::init(log_config)?;

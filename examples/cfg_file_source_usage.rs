@@ -31,13 +31,13 @@ fn main() -> anyhow::Result<()> {
 
     // 2. 使用 load 加载配置并反序列化为结构体
     println!("2. 加载数据库配置");
-    let config = source.load("database")?;
+    let config = source.load("database.json5", None)?;
     let db_config: DatabaseConfig = config.into_type()?;
     println!("   配置: {:?}\n", db_config);
 
     // 3. 使用 watch 监听配置变化
     println!("3. 启动配置监听");
-    source.watch("database", Box::new(move |change| match change {
+    source.watch("database.json5", None, Box::new(move |change| match change {
         ConfigChange::Updated(new_config) => {
             println!("   ✅ 检测到配置更新！");
             if let Ok(new_db_config) = new_config.as_type::<DatabaseConfig>() {

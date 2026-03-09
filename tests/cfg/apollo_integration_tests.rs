@@ -153,7 +153,6 @@ fn create_apollo_source() -> Result<ApolloSource> {
     ApolloSource::new(ApolloSourceConfig {
         server_url: APOLLO_SERVER_URL.to_string(),
         app_id: APOLLO_APP_ID.to_string(),
-        namespace: APOLLO_NAMESPACE.to_string(),
         cluster: APOLLO_CLUSTER.to_string(),
     })
 }
@@ -173,7 +172,7 @@ mod tests {
         let source = create_apollo_source()?;
 
         // 加载预置的 database 配置
-        let config = source.load("database")?;
+        let config = source.load("application/database", None)?;
 
         // 验证配置内容 - 配置结构为 {type, options: {...}}
         let value = config.as_value();
@@ -200,7 +199,7 @@ mod tests {
     fn test_load_redis_config() -> Result<()> {
         let source = create_apollo_source()?;
 
-        let config = source.load("redis")?;
+        let config = source.load("application/redis", None)?;
 
         // 验证配置内容 - 配置结构为 {type, options: {...}}
         let value = config.as_value();
@@ -219,7 +218,7 @@ mod tests {
     fn test_load_nonexistent_key() -> Result<()> {
         let source = create_apollo_source()?;
 
-        let result = source.load("nonexistent_key");
+        let result = source.load("application/nonexistent_key", None);
 
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
@@ -245,7 +244,7 @@ mod tests {
         let changes_clone = changes.clone();
 
         // 启动监听
-        source.watch("database", Box::new(move |change| {
+        source.watch("application/database", None, Box::new(move |change| {
             println!("收到配置变更: {:?}", change);
             changes_clone.write().unwrap().push(change);
         }))?;
@@ -324,14 +323,13 @@ mod tests {
         let source = ApolloSource::new(ApolloSourceConfig {
             server_url: "http://localhost:19999".to_string(), // 不存在的端口
             app_id: APOLLO_APP_ID.to_string(),
-            namespace: APOLLO_NAMESPACE.to_string(),
             cluster: APOLLO_CLUSTER.to_string(),
         })?;
 
         let errors: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
         let errors_clone = errors.clone();
 
-        source.watch("database", Box::new(move |change| {
+        source.watch("application/database", None, Box::new(move |change| {
             if let ConfigChange::Error(msg) = change {
                 errors_clone.write().unwrap().push(msg);
             }
@@ -357,7 +355,6 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(config.namespace, "application");
         assert_eq!(config.cluster, "default");
     }
 }

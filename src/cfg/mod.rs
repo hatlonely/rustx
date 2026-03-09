@@ -6,6 +6,7 @@
 pub mod apollo_source;
 pub mod configurable;
 pub mod file_source;
+pub mod global_source;
 pub mod macros;
 pub mod register;
 pub mod registry;
@@ -18,6 +19,7 @@ pub mod type_options;
 pub use apollo_source::{ApolloSource, ApolloSourceConfig};
 pub use configurable::Configurable;
 pub use file_source::{FileSource, FileSourceConfig};
+pub use global_source::{init, load, watch};
 pub use register::register_sources;
 pub use registry::{create_trait_from_type_options, register_trait};
 pub use reloader::ConfigReloader;
