@@ -3,13 +3,13 @@ use crate::log::{
     appender::LogAppender, formatter::LogFormatter, log_record::LogLevel, log_record::LogRecord,
 };
 use anyhow::Result;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use smart_default::SmartDefault;
 use std::sync::{Arc, Once};
 use tokio::sync::RwLock;
 
 /// Logger 创建配置（用于创建新的 Logger 实例）
-#[derive(Debug, Clone, Deserialize, SmartDefault, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize, SmartDefault, PartialEq)]
 #[serde(default)]
 pub struct LoggerCreateConfig {
     /// 日志级别
@@ -30,7 +30,7 @@ pub struct LoggerCreateConfig {
 /// 支持两种模式：
 /// - Reference: 引用已存在的 logger 实例（通过 $instance 字段）
 /// - Create: 创建新的 logger 实例
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum LoggerConfig {
     /// 引用一个已存在的 logger 实例
@@ -282,6 +282,126 @@ impl Logger {
         metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
     ) -> Result<()> {
         self.logm(LogLevel::Error, message, metadata).await
+    }
+
+    // ========== 同步接口 ==========
+
+    /// 同步记录日志
+    pub fn log_sync(&self, record: LogRecord) -> Result<()> {
+        // 检查日志级别（使用阻塞读取）
+        let current_level = {
+            let level = self.level.blocking_read();
+            *level
+        };
+
+        if record.level < current_level {
+            return Ok(());
+        }
+
+        // 格式化日志
+        let formatted = self.formatter.format(&record)?;
+
+        // 输出日志
+        self.appender.append_sync(&formatted)?;
+
+        Ok(())
+    }
+
+    /// 同步记录带 metadata 的日志（通用方法）
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// logger.logm_sync(
+    ///     LogLevel::Info,
+    ///     "user logged in",
+    ///     vec![
+    ///         ("user_id", 12345.into()),
+    ///         ("username", "alice".into())
+    ///     ]
+    /// )?;
+    /// ```
+    pub fn logm_sync(
+        &self,
+        level: LogLevel,
+        message: impl Into<String>,
+        metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
+    ) -> Result<()> {
+        let mut record = LogRecord::new(level, message.into());
+        for (key, value) in metadata.into_iter() {
+            record.metadata.push((key.into(), value));
+        }
+        self.log_sync(record)
+    }
+
+    /// 同步记录 TRACE 级别日志
+    pub fn trace_sync(&self, message: impl Into<String>) -> Result<()> {
+        self.log_sync(LogRecord::new(LogLevel::Trace, message.into()))
+    }
+
+    /// 同步记录 DEBUG 级别日志
+    pub fn debug_sync(&self, message: impl Into<String>) -> Result<()> {
+        self.log_sync(LogRecord::new(LogLevel::Debug, message.into()))
+    }
+
+    /// 同步记录 INFO 级别日志
+    pub fn info_sync(&self, message: impl Into<String>) -> Result<()> {
+        self.log_sync(LogRecord::new(LogLevel::Info, message.into()))
+    }
+
+    /// 同步记录 WARN 级别日志
+    pub fn warn_sync(&self, message: impl Into<String>) -> Result<()> {
+        self.log_sync(LogRecord::new(LogLevel::Warn, message.into()))
+    }
+
+    /// 同步记录 ERROR 级别日志
+    pub fn error_sync(&self, message: impl Into<String>) -> Result<()> {
+        self.log_sync(LogRecord::new(LogLevel::Error, message.into()))
+    }
+
+    /// 同步记录 TRACE 级别日志（带 metadata）
+    pub fn tracem_sync(
+        &self,
+        message: impl Into<String>,
+        metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
+    ) -> Result<()> {
+        self.logm_sync(LogLevel::Trace, message, metadata)
+    }
+
+    /// 同步记录 DEBUG 级别日志（带 metadata）
+    pub fn debugm_sync(
+        &self,
+        message: impl Into<String>,
+        metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
+    ) -> Result<()> {
+        self.logm_sync(LogLevel::Debug, message, metadata)
+    }
+
+    /// 同步记录 INFO 级别日志（带 metadata）
+    pub fn infom_sync(
+        &self,
+        message: impl Into<String>,
+        metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
+    ) -> Result<()> {
+        self.logm_sync(LogLevel::Info, message, metadata)
+    }
+
+    /// 同步记录 WARN 级别日志（带 metadata）
+    pub fn warnm_sync(
+        &self,
+        message: impl Into<String>,
+        metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
+    ) -> Result<()> {
+        self.logm_sync(LogLevel::Warn, message, metadata)
+    }
+
+    /// 同步记录 ERROR 级别日志（带 metadata）
+    pub fn errorm_sync(
+        &self,
+        message: impl Into<String>,
+        metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
+    ) -> Result<()> {
+        self.logm_sync(LogLevel::Error, message, metadata)
     }
 }
 
@@ -557,6 +677,70 @@ mod tests {
             .await;
 
         assert!(result.is_ok());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_logger_sync_methods() -> Result<()> {
+        let logger = create_test_logger("info");
+
+        // 测试基本同步方法
+        logger.debug_sync("debug sync")?;
+        logger.info_sync("info sync")?;
+        logger.warn_sync("warn sync")?;
+        logger.error_sync("error sync")?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_logger_sync_with_metadata() -> Result<()> {
+        let logger = create_test_logger("debug");
+
+        logger.infom_sync(
+            "user logged in sync",
+            vec![
+                ("user_id", 12345i64.into()),
+                ("username", "alice".into()),
+                ("success", true.into()),
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_logger_sync_level_filtering() -> Result<()> {
+        let logger = create_test_logger("info");
+
+        // DEBUG 级别低于 INFO，应该被过滤但不应报错
+        let result = logger.debug_sync("debug sync");
+        assert!(result.is_ok());
+
+        // INFO 级别应该被记录
+        let result = logger.info_sync("info sync");
+        assert!(result.is_ok());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_logger_mixed_sync_async() -> Result<()> {
+        let logger = create_test_logger("info");
+
+        // 同步调用
+        logger.info_sync("sync call 1")?;
+
+        // 异步调用
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            logger.info("async call").await?;
+            Ok::<(), anyhow::Error>(())
+        })?;
+
+        // 再次同步调用
+        logger.info_sync("sync call 2")?;
 
         Ok(())
     }

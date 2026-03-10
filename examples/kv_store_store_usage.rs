@@ -20,6 +20,7 @@ async fn main() -> Result<()> {
     println!("2. 从文件加载 Store 配置");
     let source = FileSource::new(FileSourceConfig {
         base_path: "examples/configs/kv_store".to_string(),
+        logger: None,
     });
 
     let type_options: TypeOptions = source.load("redis_store.json5", None)?.into_type()?;

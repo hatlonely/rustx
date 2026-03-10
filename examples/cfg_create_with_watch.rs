@@ -47,6 +47,7 @@ fn main() -> anyhow::Result<()> {
     // 1. 创建文件配置源
     let source = FileSource::new(FileSourceConfig {
         base_path: "examples/configs/cfg".to_string(),
+        logger: None,
     });
 
     // 2. 一次性创建对象（无热更新）

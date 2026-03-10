@@ -173,6 +173,87 @@ pub async fn errorm(
     get_default().errorm(message, metadata).await
 }
 
+// ========== 同步版本的便捷 log方法 ==========
+
+/// 使用默认 logger 同步记录日志
+pub fn log_sync(record: crate::log::LogRecord) -> Result<()> {
+    get_default().log_sync(record)
+}
+
+/// 使用默认 logger 同步记录带 metadata 的日志
+pub fn logm_sync(
+    level: crate::log::LogLevel,
+    message: impl Into<String>,
+    metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
+) -> Result<()> {
+    get_default().logm_sync(level, message, metadata)
+}
+
+/// 使用默认 logger 同步记录 TRACE 级别日志
+pub fn trace_sync(message: impl Into<String>) -> Result<()> {
+    get_default().trace_sync(message)
+}
+
+/// 使用默认 logger 同步记录 DEBUG 级别日志
+pub fn debug_sync(message: impl Into<String>) -> Result<()> {
+    get_default().debug_sync(message)
+}
+
+/// 使用默认 logger 同步记录 INFO 级别日志
+pub fn info_sync(message: impl Into<String>) -> Result<()> {
+    get_default().info_sync(message)
+}
+
+/// 使用默认 logger 同步记录 WARN 级别日志
+pub fn warn_sync(message: impl Into<String>) -> Result<()> {
+    get_default().warn_sync(message)
+}
+
+/// 使用默认 logger 同步记录 ERROR 级别日志
+pub fn error_sync(message: impl Into<String>) -> Result<()> {
+    get_default().error_sync(message)
+}
+
+/// 使用默认 logger 同步记录 TRACE 级别日志（带 metadata）
+pub fn tracem_sync(
+    message: impl Into<String>,
+    metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
+) -> Result<()> {
+    get_default().tracem_sync(message, metadata)
+}
+
+/// 使用默认 logger 同步记录 DEBUG 级别日志（带 metadata）
+pub fn debugm_sync(
+    message: impl Into<String>,
+    metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
+) -> Result<()> {
+    get_default().debugm_sync(message, metadata)
+}
+
+/// 使用默认 logger 同步记录 INFO 级别日志（带 metadata）
+pub fn infom_sync(
+    message: impl Into<String>,
+    metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
+) -> Result<()> {
+    get_default().infom_sync(message, metadata)
+}
+
+/// 使用默认 logger 同步记录 WARN 级别日志（带 metadata）
+pub fn warnm_sync(
+    message: impl Into<String>,
+    metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
+) -> Result<()> {
+    get_default().warnm_sync(message, metadata)
+}
+
+/// 使用默认 logger 同步记录 ERROR 级别日志（带 metadata）
+pub fn errorm_sync(
+    message: impl Into<String>,
+    metadata: impl IntoIterator<Item = (impl Into<String>, crate::log::log_record::MetadataValue)>,
+) -> Result<()> {
+    get_default().errorm_sync(message, metadata)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -402,6 +483,61 @@ mod tests {
         )
         .await;
         assert!(result.is_ok(), "Global errorm function should work");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sync_log_functions() -> Result<()> {
+        // 测试全局同步日志便捷函数
+        let result = info_sync("test sync info message");
+        assert!(result.is_ok(), "Global sync info function should work");
+
+        let result = debug_sync("test sync debug message");
+        assert!(result.is_ok(), "Global sync debug function should work");
+
+        let result = warn_sync("test sync warn message");
+        assert!(result.is_ok(), "Global sync warn function should work");
+
+        let result = error_sync("test sync error message");
+        assert!(result.is_ok(), "Global sync error function should work");
+
+        let result = trace_sync("test sync trace message");
+        assert!(result.is_ok(), "Global sync trace function should work");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sync_log_functions_with_metadata() -> Result<()> {
+        // 测试全局同步便捷函数（带 metadata）
+        let result = infom_sync(
+            "user logged in sync",
+            vec![("user_id", 12345i64.into()), ("username", "alice".into())],
+        );
+        assert!(result.is_ok(), "Global sync infom function should work");
+
+        let result = debugm_sync(
+            "processing request sync",
+            vec![("endpoint", "/api/users".into()), ("method", "GET".into())],
+        );
+        assert!(result.is_ok(), "Global sync debugm function should work");
+
+        let result = warnm_sync(
+            "high memory usage sync",
+            vec![("usage_mb", 512i64.into()), ("threshold_mb", 400i64.into())],
+        );
+        assert!(result.is_ok(), "Global sync warnm function should work");
+
+        let result = errorm_sync(
+            "database connection failed sync",
+            vec![
+                ("host", "localhost".into()),
+                ("port", 5432i64.into()),
+                ("error_code", "CONN001".into()),
+            ],
+        );
+        assert!(result.is_ok(), "Global sync errorm function should work");
 
         Ok(())
     }

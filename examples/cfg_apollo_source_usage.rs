@@ -16,6 +16,7 @@ fn main() -> anyhow::Result<()> {
         server_url: "http://localhost:8080".to_string(),
         app_id: "test-app".to_string(),
         cluster: "default".to_string(),
+        logger: None,
     })?;
     println!("   已连接到: http://localhost:8080\n");
 

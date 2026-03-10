@@ -260,6 +260,7 @@ mod tests {
     fn test_configurable_create() {
         let source = Box::new(FileSource::new(FileSourceConfig {
             base_path: "config/test".to_string(),
+            logger: None,
         })) as Box<dyn ConfigSource>;
 
         // 虽然是 dyn ConfigSource，但可以调用 create 方法
@@ -273,6 +274,7 @@ mod tests {
         // 验证 blanket impl 正确工作
         let source = FileSource::new(FileSourceConfig {
             base_path: "config".to_string(),
+            logger: None,
         });
 
         // FileSource 实现了 ConfigSource，所以自动获得 Configurable 方法
@@ -317,6 +319,7 @@ mod tests {
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
 
         let service: TestService2 = source.create::<TestService2, TestServiceConfig>("create_test.json", None)?;
@@ -336,6 +339,7 @@ mod tests {
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
 
         let result: Result<TestService2> = source.create::<TestService2, TestServiceConfig>("invalid_test.json", None);
@@ -356,6 +360,7 @@ mod tests {
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
 
         // 创建并监听
@@ -430,6 +435,7 @@ mod tests {
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
 
         let service = source.create_with_watch::<FailingService, FailingConfig>("failing_test.json", None)?;
@@ -513,6 +519,7 @@ mod tests {
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
 
         // 创建并监听
@@ -558,6 +565,7 @@ count: 100"#,
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
 
         // 使用显式格式创建对象
@@ -584,6 +592,7 @@ count = 1"#,
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
 
         // 使用显式格式创建并监听

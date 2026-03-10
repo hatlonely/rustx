@@ -69,6 +69,34 @@ impl LogAppender for ConsoleAppender {
         }
         Ok(())
     }
+
+    fn append_sync(&self, formatted_message: &str) -> Result<()> {
+        match self.config.target {
+            Target::Stdout => {
+                let mut stdout = io::stdout().lock();
+                writeln!(stdout, "{}", formatted_message)?;
+                if self.config.auto_flush {
+                    stdout.flush()?;
+                }
+            }
+            Target::Stderr => {
+                let mut stderr = io::stderr().lock();
+                writeln!(stderr, "{}", formatted_message)?;
+                if self.config.auto_flush {
+                    stderr.flush()?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn flush_sync(&self) -> Result<()> {
+        match self.config.target {
+            Target::Stdout => io::stdout().flush()?,
+            Target::Stderr => io::stderr().flush()?,
+        }
+        Ok(())
+    }
 }
 
 crate::impl_from!(ConsoleAppenderConfig => ConsoleAppender);
@@ -136,5 +164,39 @@ mod tests {
         // 手动刷新
         let flush_result = appender.flush().await;
         assert!(flush_result.is_ok());
+    }
+
+    #[test]
+    fn test_console_appender_sync() {
+        let config = ConsoleAppenderConfig::default();
+        let appender = ConsoleAppender::new(config);
+
+        let result = appender.append_sync("Sync test message");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_console_appender_sync_flush() {
+        let config = ConsoleAppenderConfig {
+            target: Target::Stderr,
+            auto_flush: false,
+        };
+        let appender = ConsoleAppender::new(config);
+
+        appender.append_sync("Sync message without flush").unwrap();
+        let flush_result = appender.flush_sync();
+        assert!(flush_result.is_ok());
+    }
+
+    #[test]
+    fn test_console_appender_sync_stderr() {
+        let config = ConsoleAppenderConfig {
+            target: Target::Stderr,
+            auto_flush: true,
+        };
+        let appender = ConsoleAppender::new(config);
+
+        let result = appender.append_sync("Sync error message");
+        assert!(result.is_ok());
     }
 }

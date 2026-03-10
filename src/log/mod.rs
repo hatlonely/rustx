@@ -63,8 +63,9 @@ pub use logger::{Logger, LoggerConfig, LoggerCreateConfig};
 pub use logger_manager::{LoggerManager, LoggerManagerConfig};
 
 pub use global_logger_manager::{
-    add, debug, debugm, error, errorm, get, get_default, info, infom, init, log, logm, trace,
-    tracem, warn, warnm,
+    add, debug, debugm, debug_sync, debugm_sync, error, errorm, error_sync, errorm_sync, get,
+    get_default, info, infom, info_sync, infom_sync, init, log, log_sync, logm, logm_sync, trace,
+    trace_sync, tracem, tracem_sync, warn, warnm, warn_sync, warnm_sync,
 };
 
 // 重新导出宏（宏通过 #[macro_export] 在 crate root 定义，这里重新导入以方便使用）

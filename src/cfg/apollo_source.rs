@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use super::source::{ConfigChange, ConfigSource, ConfigValue};
 use crate::{impl_box_from, impl_from};
+use crate::log::{Logger, LoggerConfig};
 
 /// Apollo 配置中心源的配置
 #[derive(Debug, Clone, Deserialize, Serialize, SmartDefault)]
@@ -24,6 +25,8 @@ pub struct ApolloSourceConfig {
     /// 集群名称，默认为 "default"
     #[default = "default"]
     pub cluster: String,
+    /// Logger 配置（可选，不配置则使用全局默认 logger）
+    pub logger: Option<LoggerConfig>,
 }
 
 /// Apollo 配置中心响应
@@ -84,6 +87,7 @@ struct NamespaceState {
 ///     server_url: "http://localhost:8080".to_string(),
 ///     app_id: "my-app".to_string(),
 ///     cluster: "default".to_string(),
+///     logger: None,
 /// }).unwrap();
 ///
 /// // 加载初始配置
@@ -107,6 +111,8 @@ pub struct ApolloSource {
     client: reqwest::blocking::Client,
     /// 存储每个 namespace 的状态
     namespaces: Arc<Mutex<HashMap<String, Arc<Mutex<NamespaceState>>>>>,
+    /// Logger 实例
+    logger: Arc<Logger>,
 }
 
 impl ApolloSource {
@@ -120,6 +126,18 @@ impl ApolloSource {
         let cluster = config.cluster.clone();
         let label = std::env::var("ENVIRONMENT").unwrap_or_default();
 
+        // 解析或创建 logger
+        let logger = match config.logger {
+            Some(logger_config) => Logger::resolve(logger_config)?,
+            None => crate::log::get_default(),
+        };
+
+        // 记录创建成功（在移动变量之前）
+        logger.info_sync(&format!(
+            "[INIT] apollo_source created - server={} app_id={} cluster={}",
+            server_url, app_id, cluster
+        ))?;
+
         let source = Self {
             server_url,
             app_id,
@@ -129,6 +147,7 @@ impl ApolloSource {
                 .timeout(Duration::from_secs(90))
                 .build()?,
             namespaces: Arc::new(Mutex::new(HashMap::new())),
+            logger,
         };
 
         Ok(source)
@@ -185,8 +204,15 @@ impl ApolloSource {
         let label = self.label.clone();
         let server_url = self.server_url.clone();
         let namespaces = self.namespaces.clone();
+        let logger = self.logger.clone();
 
         thread::spawn(move || {
+            // 记录线程启动
+            let _ = logger.info_sync(&format!(
+                "[POLL] poll_thread started - namespace={}",
+                namespace
+            ));
+
             let mut is_first_notification = true;
 
             loop {
@@ -222,6 +248,12 @@ impl ApolloSource {
                             if let Some(notif) = notifications.first() {
                                 let new_id = notif.notification_id;
                                 if new_id != notification_id {
+                                    // 记录收到通知
+                                    let _ = logger.debug_sync(&format!(
+                                        "[POLL] notification received - namespace={} notification_id={}->{}",
+                                        namespace, notification_id, new_id
+                                    ));
+
                                     // 更新 notification_id
                                     {
                                         let namespaces_guard = namespaces.lock().unwrap();
@@ -244,6 +276,7 @@ impl ApolloSource {
                                         &label,
                                         &namespace,
                                         &namespaces,
+                                        &logger,
                                     );
                                 }
                             }
@@ -252,8 +285,17 @@ impl ApolloSource {
                     Ok(resp) if resp.status().as_u16() == 304 => {
                         // 304 表示配置未变化，继续长轮询
                     }
-                    Err(_) | Ok(_) => {
+                    Err(e) => {
+                        // 记录请求失败
+                        let _ = logger.error_sync(&format!(
+                            "[ERROR] poll request_failed - namespace={} error={}",
+                            namespace, e
+                        ));
                         // 网络错误或超时，等待后重试
+                        thread::sleep(Duration::from_secs(5));
+                    }
+                    Ok(_) => {
+                        // 其他状态码，等待后重试
                         thread::sleep(Duration::from_secs(5));
                     }
                 }
@@ -289,6 +331,7 @@ impl ApolloSource {
         label: &str,
         namespace: &str,
         namespaces: &Arc<Mutex<HashMap<String, Arc<Mutex<NamespaceState>>>>>,
+        logger: &Arc<Logger>,
     ) {
         // 重新加载 namespace 配置
         let fetch_url = format!(
@@ -299,7 +342,13 @@ impl ApolloSource {
         match reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
-            .and_then(|client| client.get(&fetch_url).query(&[("label", label)]).send())
+            .and_then(|client| {
+                let mut req = client.get(&fetch_url);
+                if !label.is_empty() {
+                    req = req.query(&[("label", label)]);
+                }
+                req.send()
+            })
         {
             Ok(config_resp) if config_resp.status().is_success() => {
                 if let Ok(apollo_resp) = config_resp.json::<ApolloResponse>() {
@@ -343,6 +392,11 @@ impl ApolloSource {
                                                     Err(e) => {
                                                         let format_name =
                                                             Self::format_name(format.as_deref());
+                                                        // 记录解析失败
+                                                        let _ = logger.error_sync(&format!(
+                                                            "[ERROR] config parse_failed - namespace={} key={} format={} error={}",
+                                                            namespace, key, format_name, e
+                                                        ));
                                                         handler(ConfigChange::Error(format!(
                                                             "解析 {} 格式配置失败: {}",
                                                             format_name, e
@@ -367,6 +421,11 @@ impl ApolloSource {
                                                 state_guard
                                                     .current_values
                                                     .insert(key.clone(), v.clone());
+                                                // 记录配置更新
+                                                let _ = logger.info_sync(&format!(
+                                                    "[CHANGE] config updated - namespace={} key={}",
+                                                    namespace, key
+                                                ));
                                                 // 触发 handler
                                                 handler(ConfigChange::Updated(ConfigValue::new(v)));
                                             }
@@ -376,6 +435,11 @@ impl ApolloSource {
                             } else {
                                 // 配置不存在，检查是否删除
                                 if state_guard.current_values.remove(&key).is_some() {
+                                    // 记录配置删除
+                                    let _ = logger.warn_sync(&format!(
+                                        "[CHANGE] config deleted - namespace={} key={}",
+                                        namespace, key
+                                    ));
                                     if let Some(handler_list) = state_guard.handlers.get(&key) {
                                         for (handler, _) in handler_list.iter() {
                                             handler(ConfigChange::Deleted);
@@ -387,7 +451,12 @@ impl ApolloSource {
                     }
                 }
             }
-            Err(_) => {
+            Err(e) => {
+                // 记录重新加载失败
+                let _ = logger.error_sync(&format!(
+                    "[ERROR] change reload_failed - namespace={} error={}",
+                    namespace, e
+                ));
                 // 请求失败，触发所有 handlers 的错误回调
                 let namespaces_guard = namespaces.lock().unwrap();
                 if let Some(state) = namespaces_guard.get(namespace) {
@@ -436,10 +505,14 @@ impl ApolloSource {
             self.server_url, self.app_id, self.cluster, namespace
         );
 
-        let resp = self
-            .client
-            .get(&url)
-            .query(&[("label", self.label.as_str())])
+        let mut request = self.client.get(&url);
+
+        // 只有当 label 非空时才添加查询参数
+        if !self.label.is_empty() {
+            request = request.query(&[("label", self.label.as_str())]);
+        }
+
+        let resp = request
             .send()
             .map_err(|e| anyhow!("请求 Apollo 失败: {}", e))?;
 
@@ -457,6 +530,13 @@ impl ConfigSource for ApolloSource {
         // 解析 key，提取 namespace 和真正的 key
         let (namespace, actual_key) = Self::parse_key(key)?;
 
+        // 记录解析 key 成功
+        self.logger
+            .debug_sync(&format!(
+                "[LOAD] config key_parsed - namespace={} key={}",
+                namespace, actual_key
+            ))?;
+
         let apollo_resp = self.fetch_namespace_config(&namespace)?;
 
         // 从 Apollo 配置中提取特定 key
@@ -472,12 +552,25 @@ impl ConfigSource for ApolloSource {
                 Ok(v) => v,
                 Err(e) => {
                     let format_name = Self::format_name(format);
+                    // 记录解析失败
+                    self.logger.error_sync(&format!(
+                        "[ERROR] config parse_failed - namespace={} key={} format={} error={}",
+                        namespace, actual_key, format_name, e
+                    ))?;
                     Err(anyhow!("解析 {} 格式配置失败: {}", format_name, e))?
                 }
             }
         } else {
             config_value.clone()
         };
+
+        // 记录加载成功
+        self.logger
+            .debug_sync(&format!(
+                "[LOAD] config success - namespace={} key={} format={:?}",
+                namespace, actual_key, format
+            ))?;
+
         Ok(ConfigValue::new(value))
     }
 
@@ -506,6 +599,12 @@ impl ConfigSource for ApolloSource {
             }
         }
 
+        // 记录注册监听器成功
+        self.logger.info_sync(&format!(
+            "[WATCH] listener registered - namespace={} key={} format={:?}",
+            namespace, actual_key, format
+        ))?;
+
         // 记录当前配置值（用于后续对比变化）
         if let Ok(config) = self.load(key, format) {
             let namespaces = self.namespaces.lock().unwrap();
@@ -531,6 +630,7 @@ mod tests {
             server_url: "http://localhost:8080".to_string(),
             app_id: "test-app".to_string(),
             cluster: "default".to_string(),
+            logger: None,
         })?;
         assert_eq!(source.server_url, "http://localhost:8080");
         assert_eq!(source.app_id, "test-app");
@@ -544,6 +644,7 @@ mod tests {
             server_url: "http://localhost:8080/".to_string(),
             app_id: "test-app".to_string(),
             cluster: "default".to_string(),
+            logger: None,
         })?;
         assert_eq!(source.server_url, "http://localhost:8080");
         Ok(())
@@ -611,6 +712,7 @@ mod tests {
             server_url: server.url(),
             app_id: "test-app".to_string(),
             cluster: "default".to_string(),
+            logger: None,
         })?;
 
         let config = source.load("application/database", None)?;
@@ -651,6 +753,7 @@ mod tests {
             server_url: server.url(),
             app_id: "test-app".to_string(),
             cluster: "default".to_string(),
+            logger: None,
         })?;
 
         let config = source.load("application/redis", None)?;
@@ -688,6 +791,7 @@ mod tests {
             server_url: server.url(),
             app_id: "test-app".to_string(),
             cluster: "default".to_string(),
+            logger: None,
         })?;
 
         let result = source.load("application/nonexistent", None);
@@ -714,6 +818,7 @@ mod tests {
             server_url: server.url(),
             app_id: "test-app".to_string(),
             cluster: "default".to_string(),
+            logger: None,
         })?;
 
         let result = source.load("application/database", None);
@@ -740,6 +845,7 @@ mod tests {
             server_url: server.url(),
             app_id: "test-app".to_string(),
             cluster: "default".to_string(),
+            logger: None,
         })?;
 
         let result = source.load("application/database", None);
@@ -756,6 +862,7 @@ mod tests {
             server_url: "http://localhost:8080".to_string(),
             app_id: "my-app".to_string(),
             cluster: "prod".to_string(),
+            logger: None,
         };
 
         let source: ApolloSource = config.into();
@@ -811,6 +918,7 @@ mod tests {
             server_url: server.url(),
             app_id: "test-app".to_string(),
             cluster: "default".to_string(),
+            logger: None,
         })?;
 
         // 使用 YAML 格式加载
@@ -858,6 +966,7 @@ mod tests {
             server_url: server.url(),
             app_id: "test-app".to_string(),
             cluster: "default".to_string(),
+            logger: None,
         })?;
 
         // 使用 TOML 格式加载
@@ -907,6 +1016,7 @@ mod tests {
             server_url: server.url(),
             app_id: "test-app".to_string(),
             cluster: "default".to_string(),
+            logger: None,
         })?;
 
         // 测试大小写不敏感
@@ -950,6 +1060,7 @@ mod tests {
             server_url: server.url(),
             app_id: "test-app".to_string(),
             cluster: "default".to_string(),
+            logger: None,
         })
         .unwrap();
 
@@ -990,6 +1101,7 @@ mod tests {
             server_url: server.url(),
             app_id: "test-app".to_string(),
             cluster: "default".to_string(),
+            logger: None,
         })
         .unwrap();
 

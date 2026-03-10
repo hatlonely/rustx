@@ -2,7 +2,7 @@
 //!
 //! 展示如何使用 create_trait_with_watch 创建支持热更新的 trait object
 
-use rustx::cfg::{ConfigReloader, Configurable, FileSource, FileSourceConfig, register_trait};
+use rustx::cfg::{register_trait, ConfigReloader, Configurable, FileSource, FileSourceConfig};
 use serde::Deserialize;
 use std::sync::{Arc, RwLock};
 
@@ -34,8 +34,10 @@ impl From<RedisCacheConfig> for RedisCache {
 
 impl ConfigReloader<RedisCacheConfig> for RedisCache {
     fn reload_config(&mut self, config: RedisCacheConfig) -> anyhow::Result<()> {
-        println!("更新 Redis 配置: {}:{} -> {}:{}",
-            self.config.host, self.config.port, config.host, config.port);
+        println!(
+            "更新 Redis 配置: {}:{} -> {}:{}",
+            self.config.host, self.config.port, config.host, config.port
+        );
         self.config = config;
         Ok(())
     }
@@ -82,8 +84,10 @@ impl From<MemoryCacheConfig> for MemoryCache {
 
 impl ConfigReloader<MemoryCacheConfig> for MemoryCache {
     fn reload_config(&mut self, config: MemoryCacheConfig) -> anyhow::Result<()> {
-        println!("更新内存缓存配置: max_size: {} -> {}",
-            self.config.max_size, config.max_size);
+        println!(
+            "更新内存缓存配置: max_size: {} -> {}",
+            self.config.max_size, config.max_size
+        );
         self.config = config;
         Ok(())
     }
@@ -118,6 +122,7 @@ fn main() -> anyhow::Result<()> {
     // 2. 创建文件配置源
     let source = FileSource::new(FileSourceConfig {
         base_path: "examples/configs/cfg".to_string(),
+        logger: None,
     });
 
     // 3. 从配置创建并自动监听 trait object

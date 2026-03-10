@@ -623,4 +623,67 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_rolling_file_appender_sync() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let log_path = temp_dir.path().join("test.log");
+
+        let config = RollingFileAppenderConfig {
+            file_path: log_path.to_string_lossy().to_string(),
+            max_size: Some(50),
+            max_files: Some(3),
+            compress: false,
+            time_policy: None,
+            ..Default::default()
+        };
+
+        let appender = RollingFileAppender::new(config);
+
+        // 测试同步写入
+        for i in 0..10 {
+            appender.append_sync(&format!("Sync message {}", i))?;
+        }
+
+        appender.flush_sync()?;
+
+        // 验证文件被创建
+        assert!(log_path.exists());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_rolling_file_appender_mixed_sync_async() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let log_path = temp_dir.path().join("test.log");
+
+        let config = RollingFileAppenderConfig {
+            file_path: log_path.to_string_lossy().to_string(),
+            max_size: Some(100),
+            max_files: Some(5),
+            compress: false,
+            time_policy: Some(TimePolicy::Hourly),
+            ..Default::default()
+        };
+
+        let appender = std::sync::Arc::new(RollingFileAppender::new(config));
+        let appender_clone = appender.clone();
+
+        // 异步写入
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async move {
+            for i in 0..5 {
+                appender.append(&format!("Async message {}", i)).await?;
+            }
+            Ok::<(), anyhow::Error>(())
+        })?;
+
+        // 同步写入
+        for i in 0..5 {
+            appender_clone.append_sync(&format!("Sync message {}", i))?;
+        }
+
+        Ok(())
+    }
 }

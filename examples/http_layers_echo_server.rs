@@ -96,6 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 创建文件配置源，指向 examples/configs/http_layers_echo_server 目录
     let source = FileSource::new(FileSourceConfig {
         base_path: "examples/configs/http_layers_echo_server".to_string(),
+        logger: None,
     });
 
     // 从文件加载配置

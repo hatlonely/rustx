@@ -11,12 +11,15 @@ use std::sync::Arc;
 
 use super::source::{ConfigChange, ConfigSource, ConfigValue};
 use crate::{impl_box_from, impl_from};
+use crate::log::{Logger, LoggerConfig};
 
 /// 文件配置源的配置
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FileSourceConfig {
     /// 配置文件所在目录
     pub base_path: String,
+    /// Logger 配置（可选，不配置则使用全局默认 logger）
+    pub logger: Option<LoggerConfig>,
 }
 
 /// 文件配置源
@@ -30,6 +33,7 @@ pub struct FileSourceConfig {
 /// // 创建文件配置源，指向 config 目录
 /// let source = FileSource::new(FileSourceConfig {
 ///     base_path: "config".to_string(),
+///     logger: None,
 /// });
 ///
 /// // 加载 config/database.json（自动根据扩展名推断格式）
@@ -40,6 +44,8 @@ pub struct FileSourceConfig {
 /// ```
 pub struct FileSource {
     base_path: PathBuf,
+    /// Logger 实例
+    logger: Arc<Logger>,
 }
 
 impl FileSource {
@@ -48,8 +54,22 @@ impl FileSource {
     /// # 参数
     /// - `config`: 文件配置源配置
     pub fn new(config: FileSourceConfig) -> Self {
+        // 解析或创建 logger
+        let logger = match config.logger {
+            Some(logger_config) => Logger::resolve(logger_config)
+                .expect("Failed to resolve logger"),
+            None => crate::log::get_default(),
+        };
+
+        // 记录创建成功
+        let _ = logger.info_sync(&format!(
+            "[INIT] file_source created - base_path={}",
+            config.base_path
+        ));
+
         Self {
             base_path: config.base_path.into(),
+            logger,
         }
     }
 
@@ -78,6 +98,11 @@ impl FileSource {
         let path = self.base_path.join(key);
 
         if !path.exists() {
+            // 记录文件不存在
+            let _ = self.logger.error_sync(&format!(
+                "[ERROR] file not_found - path={}",
+                path.display()
+            ));
             return Err(anyhow!("配置文件不存在: {}", path.display()));
         }
 
@@ -115,10 +140,42 @@ impl FileSource {
 impl ConfigSource for FileSource {
     fn load(&self, key: &str, format: Option<&str>) -> Result<ConfigValue> {
         let (path, fmt) = self.find_config_file(key, format)?;
-        let content = std::fs::read_to_string(&path)?;
+
+        // 记录开始加载
+        let _ = self.logger.debug_sync(&format!(
+            "[LOAD] file loading - path={} format={}",
+            path.display(),
+            fmt
+        ));
+
+        let content = std::fs::read_to_string(&path).map_err(|e| {
+            // 记录读取失败
+            let _ = self.logger.error_sync(&format!(
+                "[ERROR] file read_failed - path={} error={}",
+                path.display(),
+                e
+            ));
+            anyhow!("读取配置文件失败: {}, path: {:?}", e, path)
+        })?;
+
         match Self::parse_config_with_format(&content, &fmt) {
-            Ok(value) => Ok(ConfigValue::new(value)),
+            Ok(value) => {
+                // 记录加载成功
+                let _ = self.logger.debug_sync(&format!(
+                    "[LOAD] file success - path={} format={}",
+                    path.display(),
+                    fmt
+                ));
+                Ok(ConfigValue::new(value))
+            }
             Err(e) => {
+                // 记录解析失败
+                let _ = self.logger.error_sync(&format!(
+                    "[ERROR] file parse_failed - path={} format={} error={}",
+                    path.display(),
+                    fmt,
+                    e
+                ));
                 Err(anyhow!("解析 {} 格式配置文件失败: {}, path: {:?}", fmt, e, path))
             }
         }
@@ -134,31 +191,83 @@ impl ConfigSource for FileSource {
         let file_path_clone = file_path.clone();
         let fmt_clone = fmt.clone();
         let handler = Arc::new(handler);
+        let logger = self.logger.clone();
+
+        // 记录注册监听器
+        let _ = self.logger.info_sync(&format!(
+            "[WATCH] listener registered - path={} format={}",
+            file_path.display(),
+            fmt
+        ));
 
         // 使用全局 watch 函数
         crate::fs::watch(&file_path, move |event| {
             let handler = handler.clone();
+            let logger = logger.clone();
             match event {
                 crate::fs::FileEvent::Modified(_) | crate::fs::FileEvent::Created(_) => {
                     match std::fs::read_to_string(&file_path_clone) {
                         Ok(content) => match Self::parse_config_with_format(&content, &fmt_clone) {
-                            Ok(value) => handler(ConfigChange::Updated(ConfigValue::new(value))),
+                            Ok(value) => {
+                                // 记录文件更新
+                                let _ = logger.info_sync(&format!(
+                                    "[CHANGE] file updated - path={}",
+                                    file_path_clone.display()
+                                ));
+                                handler(ConfigChange::Updated(ConfigValue::new(value)))
+                            }
                             Err(e) => {
-                                handler(ConfigChange::Error(format!("解析 {} 格式配置失败: {}", fmt_clone, e)))
+                                // 记录解析失败
+                                let _ = logger.error_sync(&format!(
+                                    "[ERROR] file parse_failed - path={} format={} error={}",
+                                    file_path_clone.display(),
+                                    fmt_clone,
+                                    e
+                                ));
+                                handler(ConfigChange::Error(format!(
+                                    "解析 {} 格式配置失败: {}",
+                                    fmt_clone, e
+                                )))
                             }
                         },
                         Err(e) => {
                             // 如果读取失败（文件可能被删除），发送删除事件
                             if !file_path_clone.exists() {
-                                handler(ConfigChange::Deleted);
+                                // 记录文件删除
+                                let _ = logger.warn_sync(&format!(
+                                    "[CHANGE] file deleted - path={}",
+                                    file_path_clone.display()
+                                ));
+                                handler(ConfigChange::Deleted)
                             } else {
-                                handler(ConfigChange::Error(format!("读取文件失败: {}", e)));
+                                // 记录读取失败
+                                let _ = logger.error_sync(&format!(
+                                    "[ERROR] file read_failed - path={} error={}",
+                                    file_path_clone.display(),
+                                    e
+                                ));
+                                handler(ConfigChange::Error(format!("读取文件失败: {}", e)))
                             }
                         }
                     }
                 }
-                crate::fs::FileEvent::Deleted(_) => handler(ConfigChange::Deleted),
-                crate::fs::FileEvent::Error(err) => handler(ConfigChange::Error(err)),
+                crate::fs::FileEvent::Deleted(_) => {
+                    // 记录文件删除
+                    let _ = logger.warn_sync(&format!(
+                        "[CHANGE] file deleted - path={}",
+                        file_path_clone.display()
+                    ));
+                    handler(ConfigChange::Deleted)
+                }
+                crate::fs::FileEvent::Error(err) => {
+                    // 记录错误事件
+                    let _ = logger.error_sync(&format!(
+                        "[ERROR] file watch_error - path={} error={}",
+                        file_path_clone.display(),
+                        err
+                    ));
+                    handler(ConfigChange::Error(err))
+                }
             }
         })?;
 
@@ -192,6 +301,7 @@ mod tests {
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
         let config = source.load("test.json", None)?;
 
@@ -216,6 +326,7 @@ port: 3306
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
         let config = source.load("test.yaml", None)?;
 
@@ -240,6 +351,7 @@ port = 3306
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
         let config = source.load("test.toml", None)?;
 
@@ -254,6 +366,7 @@ port = 3306
         let temp_dir = TempDir::new().unwrap();
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
 
         let result = source.load("nonexistent.json", None);
@@ -272,6 +385,7 @@ port = 3306
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
 
         // 使用 Arc<RwLock> 存储变更通知
@@ -320,6 +434,7 @@ port = 3306
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
 
         let changes = Arc::new(RwLock::new(Vec::new()));
@@ -360,6 +475,7 @@ port = 3306
         {
             let source = FileSource::new(FileSourceConfig {
                 base_path: temp_dir.path().to_string_lossy().to_string(),
+                logger: None,
             });
             source.watch("cleanup_test.json", None, Box::new(|_| {}))?;
 
@@ -388,6 +504,7 @@ port: 3306
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
 
         // 使用自动推断（None）应该失败，因为 .config 扩展名不支持
@@ -417,6 +534,7 @@ port = 3306
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
 
         // 指定 TOML 格式
@@ -436,6 +554,7 @@ port = 3306
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
 
         // 测试大小写不敏感
@@ -457,6 +576,7 @@ port = 3306
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
 
         // 不支持的扩展名
@@ -475,6 +595,7 @@ port = 3306
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
 
         // 显式指定不支持的格式
@@ -494,6 +615,7 @@ port = 3306
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
 
         let changes = Arc::new(RwLock::new(Vec::new()));
@@ -543,6 +665,7 @@ value: 42
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
 
         // 自动推断格式（从 .yml 扩展名）
@@ -570,6 +693,7 @@ value: 42
 
         let source = FileSource::new(FileSourceConfig {
             base_path: temp_dir.path().to_string_lossy().to_string(),
+            logger: None,
         });
 
         // 自动推断格式（从 .json5 扩展名）
