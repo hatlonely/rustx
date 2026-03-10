@@ -11,7 +11,7 @@ use std::thread;
 use std::time::Duration;
 
 use super::source::{ConfigChange, ConfigSource, ConfigValue};
-use crate::{impl_from, impl_box_from};
+use crate::{impl_box_from, impl_from};
 
 /// Apollo 配置中心源的配置
 #[derive(Debug, Clone, Deserialize, Serialize, SmartDefault)]
@@ -48,7 +48,13 @@ struct ApolloNotification {
 /// 命名空间状态
 struct NamespaceState {
     /// 存储该 namespace 下 key -> (handler, format) 的映射
-    handlers: HashMap<String, Vec<(Box<dyn Fn(ConfigChange) + Send + Sync + 'static>, Option<String>)>>,
+    handlers: HashMap<
+        String,
+        Vec<(
+            Box<dyn Fn(ConfigChange) + Send + Sync + 'static>,
+            Option<String>,
+        )>,
+    >,
     /// 存储该 namespace 下每个 key 当前配置值，用于对比变化
     current_values: HashMap<String, serde_json::Value>,
     /// 长轮询的 notification ID
@@ -95,6 +101,8 @@ pub struct ApolloSource {
     app_id: String,
     /// 集群名称
     cluster: String,
+    /// 环境标签，用于区分灰度及生产环境
+    label: String,
     /// HTTP 客户端
     client: reqwest::blocking::Client,
     /// 存储每个 namespace 的状态
@@ -110,11 +118,13 @@ impl ApolloSource {
         let server_url = config.server_url.trim_end_matches('/').to_string();
         let app_id = config.app_id.clone();
         let cluster = config.cluster.clone();
+        let label = std::env::var("ENVIRONMENT").unwrap_or_default();
 
         let source = Self {
             server_url,
             app_id,
             cluster,
+            label,
             client: reqwest::blocking::Client::builder()
                 .timeout(Duration::from_secs(90))
                 .build()?,
@@ -172,6 +182,7 @@ impl ApolloSource {
         let client = self.client.clone();
         let app_id = self.app_id.clone();
         let cluster = self.cluster.clone();
+        let label = self.label.clone();
         let server_url = self.server_url.clone();
         let namespaces = self.namespaces.clone();
 
@@ -200,6 +211,7 @@ impl ApolloSource {
                         ("appId", app_id.as_str()),
                         ("cluster", cluster.as_str()),
                         ("notifications", &params.to_string()),
+                        ("label", label.as_str()),
                     ])
                     .timeout(Duration::from_secs(90))
                     .send()
@@ -229,6 +241,7 @@ impl ApolloSource {
                                         &server_url,
                                         &app_id,
                                         &cluster,
+                                        &label,
                                         &namespace,
                                         &namespaces,
                                     );
@@ -273,16 +286,20 @@ impl ApolloSource {
         server_url: &str,
         app_id: &str,
         cluster: &str,
+        label: &str,
         namespace: &str,
         namespaces: &Arc<Mutex<HashMap<String, Arc<Mutex<NamespaceState>>>>>,
     ) {
         // 重新加载 namespace 配置
-        let fetch_url = format!("{}/configs/{}/{}/{}", server_url, app_id, cluster, namespace);
+        let fetch_url = format!(
+            "{}/configs/{}/{}/{}",
+            server_url, app_id, cluster, namespace
+        );
 
         match reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
-            .and_then(|client| client.get(&fetch_url).send())
+            .and_then(|client| client.get(&fetch_url).query(&[("label", label)]).send())
         {
             Ok(config_resp) if config_resp.status().is_success() => {
                 if let Ok(apollo_resp) = config_resp.json::<ApolloResponse>() {
@@ -298,41 +315,58 @@ impl ApolloSource {
                             if let Some(config_value) = apollo_resp.configurations.get(&key) {
                                 // 配置存在，检查是否更新
                                 // 克隆 handlers 信息以避免借用冲突
-                                let handlers_info: Vec<_> = state_guard.handlers.get(&key)
-                                    .map(|list| list.iter().map(|(h, f)| (h as *const dyn Fn(ConfigChange), f.clone())).collect())
+                                let handlers_info: Vec<_> = state_guard
+                                    .handlers
+                                    .get(&key)
+                                    .map(|list| {
+                                        list.iter()
+                                            .map(|(h, f)| {
+                                                (h as *const dyn Fn(ConfigChange), f.clone())
+                                            })
+                                            .collect()
+                                    })
                                     .unwrap_or_default();
 
                                 if !handlers_info.is_empty() {
                                     // 对每个 handler，使用其对应的 format 解析配置
                                     for (handler_ptr, format) in handlers_info {
-                                        let handler = unsafe {
-                                            &*handler_ptr
-                                        };
+                                        let handler = unsafe { &*handler_ptr };
 
                                         // 解析新值
-                                        let new_value = if let Some(config_str) = config_value.as_str() {
-                                            match Self::parse_config_with_format(config_str, format.as_deref()) {
-                                                Ok(v) => Some(v),
-                                                Err(e) => {
-                                                    let format_name = Self::format_name(format.as_deref());
-                                                    handler(ConfigChange::Error(format!("解析 {} 格式配置失败: {}", format_name, e)));
-                                                    continue;
+                                        let new_value =
+                                            if let Some(config_str) = config_value.as_str() {
+                                                match Self::parse_config_with_format(
+                                                    config_str,
+                                                    format.as_deref(),
+                                                ) {
+                                                    Ok(v) => Some(v),
+                                                    Err(e) => {
+                                                        let format_name =
+                                                            Self::format_name(format.as_deref());
+                                                        handler(ConfigChange::Error(format!(
+                                                            "解析 {} 格式配置失败: {}",
+                                                            format_name, e
+                                                        )));
+                                                        continue;
+                                                    }
                                                 }
-                                            }
-                                        } else {
-                                            Some(config_value.clone())
-                                        };
+                                            } else {
+                                                Some(config_value.clone())
+                                            };
 
                                         if let Some(v) = new_value {
                                             // 检查是否有变化
-                                            let has_changed = match state_guard.current_values.get(&key) {
-                                                Some(old_value) => old_value != &v,
-                                                None => true,
-                                            };
+                                            let has_changed =
+                                                match state_guard.current_values.get(&key) {
+                                                    Some(old_value) => old_value != &v,
+                                                    None => true,
+                                                };
 
                                             if has_changed {
                                                 // 更新当前值
-                                                state_guard.current_values.insert(key.clone(), v.clone());
+                                                state_guard
+                                                    .current_values
+                                                    .insert(key.clone(), v.clone());
                                                 // 触发 handler
                                                 handler(ConfigChange::Updated(ConfigValue::new(v)));
                                             }
@@ -388,7 +422,9 @@ impl ApolloSource {
 
     /// 格式名称（用于错误提示）
     fn format_name(format: Option<&str>) -> String {
-        format.map(|s| s.to_uppercase()).unwrap_or_else(|| "JSON".to_string())
+        format
+            .map(|s| s.to_uppercase())
+            .unwrap_or_else(|| "JSON".to_string())
     }
 }
 
@@ -403,6 +439,7 @@ impl ApolloSource {
         let resp = self
             .client
             .get(&url)
+            .query(&[("label", self.label.as_str())])
             .send()
             .map_err(|e| anyhow!("请求 Apollo 失败: {}", e))?;
 
@@ -444,7 +481,12 @@ impl ConfigSource for ApolloSource {
         Ok(ConfigValue::new(value))
     }
 
-    fn watch(&self, key: &str, format: Option<&str>, handler: Box<dyn Fn(ConfigChange) + Send + Sync + 'static>) -> Result<()> {
+    fn watch(
+        &self,
+        key: &str,
+        format: Option<&str>,
+        handler: Box<dyn Fn(ConfigChange) + Send + Sync + 'static>,
+    ) -> Result<()> {
         // 解析 key，提取 namespace 和真正的 key
         let (namespace, actual_key) = Self::parse_key(key)?;
 
@@ -469,7 +511,9 @@ impl ConfigSource for ApolloSource {
             let namespaces = self.namespaces.lock().unwrap();
             if let Some(state) = namespaces.get(&namespace) {
                 let mut state_guard = state.lock().unwrap();
-                state_guard.current_values.insert(actual_key, config.as_value().clone());
+                state_guard
+                    .current_values
+                    .insert(actual_key, config.as_value().clone());
             }
         }
 
